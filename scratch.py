@@ -6,26 +6,27 @@ import textwrap
 import cv2
 import mediapipe as mp
 import numpy as np
-import math
+import json
 
-# --- 1. SET YOUR CONFIGURATION HERE ---
+# --- 1. LOAD CONFIGURATION ---
 
-# The folder containing the original images
-input_folder = 'IMG_7280'
+# Load settings from config.json
+with open('config.json', 'r') as f:
+    config = json.load(f)
 
-# The folder where captioned images will be saved
-output_folder = 'captioned_images'
+input_folder = config['input_folder']
+output_folder = config['output_folder']
+font_path = config['font_path']
+font_size_divisor = config['font_size_divisor']
+text_width_ratio = config['text_width_ratio']
+text_color = tuple(config['text_color'])
+stroke_color = tuple(config['stroke_color'])
+stroke_width = config['stroke_width']
 
-# The text you want to write on the images
-caption_text = "Sample Caption Text, this will be centered in the largest available empty space. Adjust as needed."
+# Load caption from caption.txt
+with open('caption.txt', 'r', encoding='utf-8') as f:
+    caption_text = f.read().strip()
 
-# Font settings
-font_path = 'Roboto-VariableFont_wdth,wght.ttf'
-font_size_divisor = 10
-text_width_ratio = 0.9
-text_color = (255, 255, 255)
-stroke_color = (0, 0, 0)
-stroke_width = 2
 
 # --- 2. SCRIPT LOGIC (No need to edit below) ---
 
