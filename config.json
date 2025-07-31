@@ -1,0 +1,10 @@
+{
+    "input_folder": "IMG_7280",
+    "output_folder": "captioned_images",
+    "font_path": "TikTokSans-VariableFont_opsz,slnt,wdth,wght.ttf",
+    "font_size_divisor": 10,
+    "text_width_ratio": 0.9,
+    "text_color": [255, 255, 255],
+    "stroke_color": [0, 0, 0],
+    "stroke_width": 2
+}
