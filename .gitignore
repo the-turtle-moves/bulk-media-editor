@@ -3,3 +3,7 @@ caption.txt
 captioned_images*
 instructions.txt
 *.ttf
+__pycache__
+build
+dist
+gui.spec

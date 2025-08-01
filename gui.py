@@ -2,7 +2,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import json
 import os
-from image_processor import process_images
+# Import both process_images and the new resource_path function
+from image_processor import process_images, resource_path
 
 class App(tk.Tk):
     def __init__(self):
@@ -10,8 +11,8 @@ class App(tk.Tk):
         self.title("Image Captioner")
         self.geometry("800x600")
 
-        # --- Load Config ---
-        with open('config.json', 'r') as f:
+        # --- Load Config using the helper function ---
+        with open(resource_path('config.json'), 'r') as f:
             self.config = json.load(f)
 
         # --- UI Elements ---
@@ -59,14 +60,16 @@ class App(tk.Tk):
             return
 
         try:
-            with open('caption.txt', 'r', encoding='utf-8') as f:
+            # Load caption using the helper function
+            with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
                 caption_text = f.read().strip()
 
             process_images(
                 image_paths=files_to_process,
                 output_folder=self.config['output_folder'],
                 caption_text=caption_text,
-                font_path=self.config['font_path'],
+                # Resolve the font path before passing it
+                font_path=resource_path(self.config['font_path']),
                 font_size_divisor=self.config['font_size_divisor'],
                 text_width_ratio=self.config['text_width_ratio'],
                 text_color=tuple(self.config['text_color']),

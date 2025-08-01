@@ -1,4 +1,5 @@
 import os
+import sys
 import shutil
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
@@ -7,6 +8,20 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import json
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
+
+def safe_print(text):
+    """ A wrapper for print that checks if stdout is available. """
+    if sys.stdout:
+        print(text)
 
 def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width):
     """
@@ -18,9 +33,9 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
     mp_face_detection = mp.solutions.face_detection
     face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
-    print(f"Starting to process {len(image_paths)} images...")
+    safe_print(f"Starting to process {len(image_paths)} images...")
 
-    for image_path in tqdm(image_paths, desc="Captioning Images"):
+    for image_path in tqdm(image_paths, desc="Captioning Images", disable=not sys.stdout):
         filename = os.path.basename(image_path)
         cv_image = cv2.imread(image_path)
         base_image = Image.open(image_path).convert("RGBA")
@@ -139,25 +154,29 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
             base_image = base_image.convert("RGB")
         base_image.save(output_path)
 
-    print(f"\n✅ Success! All images have been captioned and saved in the '{output_folder}' folder.")
+    safe_print(f"\n✅ Success! All images have been captioned and saved in the '{output_folder}' folder.")
+
+
 
 if __name__ == "__main__":
     # --- 1. LOAD CONFIGURATION ---
-    with open('config.json', 'r') as f:
+    with open(resource_path('config.json'), 'r') as f:
         config = json.load(f)
 
     input_folder = config['input_folder']
     output_folder = config['output_folder']
-    font_path = config['font_path']
+    font_path = resource_path(config['font_path']) # Correctly resolve font path
     font_size_divisor = config['font_size_divisor']
     text_width_ratio = config['text_width_ratio']
     text_color = tuple(config['text_color'])
     stroke_color = tuple(config['stroke_color'])
     stroke_width = config['stroke_width']
 
-    with open('caption.txt', 'r', encoding='utf-8') as f:
+    with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
         caption_text = f.read().strip()
 
-    image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-    
-    process_images(image_files, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width)
+    # Note: This part will only work when running as a script, not from the EXE
+    if os.path.exists(input_folder):
+        image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        if image_files:
+            process_images(image_files, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width)
