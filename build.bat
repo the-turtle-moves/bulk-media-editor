@@ -11,11 +11,11 @@ IF EXIST "C:\Users\Lenovo\Documents\GitHub\image_maker\dist\gui.exe" (
 
 echo Starting build process...
 
-for /f "delims=" %%i in ('python get_mediapipe_path.py') do (
+for /f "delims=" %%i in ('python -c "import mediapipe; import os; print(os.path.dirname(mediapipe.__file__))" ') do (
     set "mediapipe_path=%%i"
 )
 
-pyinstaller --onefile --windowed --add-data "config.json;." --add-data "TikTokSans-VariableFont_opsz,slnt,wdth,wght.ttf;." --add-data "caption.txt;." --add-data "%mediapipe_path%;mediapipe/modules" --upx-dir . gui.py
+pyinstaller --onefile --windowed --add-data "config.json;." --add-data "TikTokSans-VariableFont_opsz,slnt,wdth,wght.ttf;." --add-data "caption.txt;." --add-data "%mediapipe_path%;mediapipe" --upx-dir . gui.py
 
 REM --- Calculate and Display Runtime ---
 set end_time=%TIME%

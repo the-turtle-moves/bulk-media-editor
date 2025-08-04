@@ -10,7 +10,7 @@ import numpy as np
 import json
 
 def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
+    """ Get absolute path to resource, works for dev and for PyInstaller """ 
     try:
         # PyInstaller creates a temp folder and stores path in _MEIPASS
         base_path = sys._MEIPASS
@@ -23,160 +23,200 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width):
+def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, placement_mode="Automatic", manual_placements=None):
     """
-    Processes a list of images to add a caption.
+    Processes a list of images to add a caption based on the selected placement mode.
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    mp_face_detection = mp.solutions.face_detection
-    face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+    # Initialize face detector only if needed
+    face_detector = None
+    if placement_mode == "Automatic":
+        mp_face_detection = mp.solutions.face_detection
+        face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
-    safe_print(f"Starting to process {len(image_paths)} images...")
+    safe_print(f"Starting to process {len(image_paths)} images with mode: {placement_mode}...")
+
+    # --- Pre-determine the single manual position if that mode is selected ---
+    manual_pos_for_all = None
+    if placement_mode == "Manual - Same for All" and manual_placements:
+        # Get the first available placement
+        manual_pos_for_all = next(iter(manual_placements.values()), None)
 
     for image_path in tqdm(image_paths, desc="Captioning Images", disable=not sys.stdout):
         filename = os.path.basename(image_path)
-        cv_image = cv2.imread(image_path)
         base_image = Image.open(image_path).convert("RGBA")
         draw = ImageDraw.Draw(base_image)
-        
-        original_height, original_width, _ = cv_image.shape
+        original_width, original_height = base_image.size
 
-        # --- Helper functions ---
-        def rotate_image(image, angle):
-            height, width = image.shape[:2]
-            center = (width / 2, height / 2)
-            rotation_matrix = cv2.getRotationMatrix2D(center, angle, 1.0)
-            cos = np.abs(rotation_matrix[0, 0])
-            sin = np.abs(rotation_matrix[0, 1])
-            new_width = int((height * sin) + (width * cos))
-            new_height = int((height * cos) + (width * sin))
-            rotation_matrix[0, 2] += (new_width / 2) - center[0]
-            rotation_matrix[1, 2] += (new_height / 2) - center[1]
-            rotated_image = cv2.warpAffine(image, rotation_matrix, (new_width, new_height))
-            return rotated_image, rotation_matrix
-
-        def get_face_detections_with_rotation(cv_image):
-            angles_to_try = [0, 15, -15, 30, -30, 45, -45]
-            for angle in angles_to_try:
-                if angle == 0:
-                    image_to_process = cv_image
-                    M = None
-                else:
-                    image_to_process, M = rotate_image(cv_image, angle)
-                rgb_image = cv2.cvtColor(image_to_process, cv2.COLOR_BGR2RGB)
-                results = face_detector.process(rgb_image)
-                if results.detections:
-                    return results, M, image_to_process.shape[1], image_to_process.shape[0]
-            return None, None, None, None
-
-        # --- ADVANCED PLACEMENT LOGIC ---
-        results, M, processed_width, processed_height = get_face_detections_with_rotation(cv_image)
-        
-        occupied_zones = []
-        if results:
-            if M is not None:
-                inv_M = cv2.invertAffineTransform(M)
-            for detection in results.detections:
-                bboxC = detection.location_data.relative_bounding_box
-                x_min = int(bboxC.xmin * processed_width)
-                y_min = int(bboxC.ymin * processed_height)
-                x_max = x_min + int(bboxC.width * processed_width)
-                y_max = y_min + int(bboxC.height * processed_height)
-                box_corners = np.array([
-                    [x_min, y_min], [x_max, y_min], [x_max, y_max], [x_min, y_max]
-                ], dtype=np.float32).reshape(-1, 1, 2)
-                if M is not None:
-                    original_corners = cv2.transform(box_corners, inv_M)
-                else:
-                    original_corners = box_corners
-                y_coords = original_corners[:, :, 1]
-                y_start = int(np.min(y_coords))
-                y_end = int(np.max(y_coords))
-                occupied_zones.append((y_start, y_end))
-
-        if occupied_zones:
-            occupied_zones.sort()
-            merged_zones = [occupied_zones[0]]
-            for current_start, current_end in occupied_zones[1:]:
-                last_start, last_end = merged_zones[-1]
-                if current_start <= last_end:
-                    merged_zones[-1] = (last_start, max(last_end, current_end))
-                else:
-                    merged_zones.append((current_start, current_end))
-            occupied_zones = merged_zones
-
-        safe_zones = []
-        last_y_end = 0
-        for y_start, y_end in occupied_zones:
-            safe_zones.append((last_y_end, y_start))
-            last_y_end = y_end
-        safe_zones.append((last_y_end, original_height))
-
-        # --- CAPTIONING LOGIC ---
+        # --- CAPTION STYLING LOGIC (same for all modes) ---
         font_size = int(original_width / font_size_divisor)
         font = ImageFont.truetype(font_path, font_size)
+        
         single_line_bbox = draw.textbbox((0, 0), caption_text, font=font)
         single_line_width = single_line_bbox[2] - single_line_bbox[0]
         line_height = single_line_bbox[3] - single_line_bbox[1]
+        
         max_text_width = original_width * text_width_ratio
         lines = [caption_text]
         if single_line_width > max_text_width:
             avg_char_width = single_line_width / len(caption_text)
             wrap_at_chars = int(max_text_width / avg_char_width) if avg_char_width > 0 else 20
             lines = textwrap.wrap(caption_text, width=wrap_at_chars)
+        
         block_height = len(lines) * line_height
-        margin = int(original_height * 0.05)
-        best_zone = (0, 0)
-        max_safe_height = -1
-        for y_start, y_end in safe_zones:
-            zone_height = y_end - y_start
-            if zone_height >= block_height and zone_height > max_safe_height:
-                max_safe_height = zone_height
-                best_zone = (y_start, y_end)
-        if max_safe_height > -1:
+
+        # --- PLACEMENT LOGIC ---
+        current_y = 0
+        x_coords = []
+
+        if placement_mode == "Automatic":
+            # --- AUTOMATIC PLACEMENT LOGIC ---
+            cv_image = cv2.imread(image_path)
+            
+            def rotate_image(image, angle):
+                h, w = image.shape[:2]
+                center = (w / 2, h / 2)
+                M = cv2.getRotationMatrix2D(center, angle, 1.0)
+                cos, sin = np.abs(M[0, 0]), np.abs(M[0, 1])
+                nW, nH = int((h * sin) + (w * cos)), int((h * cos) + (w * sin))
+                M[0, 2] += (nW / 2) - center[0]
+                M[1, 2] += (nH / 2) - center[1]
+                return cv2.warpAffine(image, M, (nW, nH)), M
+
+            def get_face_detections_with_rotation(cv_img):
+                for angle in [0, 15, -15, 30, -30]:
+                    img_to_proc, M = (cv_img, None) if angle == 0 else rotate_image(cv_img, angle)
+                    results = face_detector.process(cv2.cvtColor(img_to_proc, cv2.COLOR_BGR2RGB))
+                    if results.detections:
+                        return results, M, img_to_proc.shape[1], img_to_proc.shape[0]
+                return None, None, None, None
+
+            results, M, processed_width, processed_height = get_face_detections_with_rotation(cv_image)
+            
+            occupied_zones = []
+            if results:
+                inv_M = cv2.invertAffineTransform(M) if M is not None else None
+                for detection in results.detections:
+                    bbox = detection.location_data.relative_bounding_box
+                    x, y, w, h = int(bbox.xmin * processed_width), int(bbox.ymin * processed_height), int(bbox.width * processed_width), int(bbox.height * processed_height)
+                    corners = cv2.transform(np.array([[[x, y], [x+w, y], [x+w, y+h], [x, y+h]]], dtype=np.float32), inv_M) if M is not None else np.array([[[x, y], [x+w, y], [x+w, y+h], [x, y+h]]])
+                    y_coords = corners[0, :, 1]
+                    occupied_zones.append((int(np.min(y_coords)), int(np.max(y_coords))))
+
+            if occupied_zones:
+                occupied_zones.sort()
+                merged = [occupied_zones[0]]
+                for start, end in occupied_zones[1:]:
+                    last_start, last_end = merged[-1]
+                    if start <= last_end:
+                        merged[-1] = (last_start, max(last_end, end))
+                    else:
+                        merged.append((start, end))
+                occupied_zones = merged
+
+            safe_zones = []
+            last_y = 0
+            for start, end in occupied_zones:
+                safe_zones.append((last_y, start))
+                last_y = end
+            safe_zones.append((last_y, original_height))
+
+            best_zone = max(safe_zones, key=lambda z: z[1] - z[0])
             zone_start, zone_end = best_zone
             zone_height = zone_end - zone_start
-            offset = (zone_height - block_height) / 2
-            current_y = zone_start + offset
-        else:
-            current_y = original_height - block_height - margin
-        for line in lines:
-            line_bbox = draw.textbbox((0, 0), line, font=font)
-            line_width = line_bbox[2] - line_bbox[0]
-            x = (original_width - line_width) / 2
+            
+            if zone_height >= block_height:
+                offset = (zone_height - block_height) / 2
+                current_y = zone_start + offset
+            else:
+                margin = int(original_height * 0.05)
+                current_y = original_height - block_height - margin
+
+        elif placement_mode in ["Manual - Same for All", "Manual - Individual"]:
+            # --- MANUAL PLACEMENT LOGIC ---
+            pos = manual_pos_for_all if placement_mode == "Manual - Same for All" else manual_placements.get(image_path)
+            
+            if pos:
+                manual_x, manual_y = pos
+                # In manual mode, the click point is the center of the text block
+                current_y = manual_y - (block_height / 2)
+                # We'll calculate x for each line to center it on manual_x
+                for line in lines:
+                    line_bbox = draw.textbbox((0, 0), line, font=font)
+                    line_width = line_bbox[2] - line_bbox[0]
+                    x_coords.append(manual_x - (line_width / 2))
+            else:
+                # Fallback for safety, though GUI should prevent this
+                margin = int(original_height * 0.05)
+                current_y = original_height - block_height - margin
+
+
+        # --- DRAWING LOGIC ---
+        for i, line in enumerate(lines):
+            # For automatic, calculate x centered for each line
+            if not x_coords:
+                line_bbox = draw.textbbox((0, 0), line, font=font)
+                line_width = line_bbox[2] - line_bbox[0]
+                x = (original_width - line_width) / 2
+            else:
+                # For manual, use pre-calculated x
+                x = x_coords[i]
+
             draw.text((x, current_y), line, font=font, fill=text_color, stroke_width=stroke_width, stroke_fill=stroke_color)
             current_y += line_height
 
+        # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
         if filename.lower().endswith(('.jpg', '.jpeg')):
             base_image = base_image.convert("RGB")
         base_image.save(output_path)
 
-    safe_print(f"\n✅ Success! All images have been captioned and saved in the '{output_folder}' folder.")
-
+    safe_print(f"✅ Success! All images have been captioned and saved in the \"{output_folder}\" folder.")
 
 
 if __name__ == "__main__":
-    # --- 1. LOAD CONFIGURATION ---
+    # This part of the script is for command-line execution and testing.
+    # It won't be used by the GUI but is good for direct script runs.
     with open(resource_path('config.json'), 'r') as f:
         config = json.load(f)
 
-    input_folder = config['input_folder']
+    input_folder = config.get('input_folder', 'IMG_7280') # Default to IMG_7280 if not specified
     output_folder = config['output_folder']
-    font_path = resource_path(config['font_path']) # Correctly resolve font path
+    font_path = resource_path(config['font_path'])
     font_size_divisor = config['font_size_divisor']
     text_width_ratio = config['text_width_ratio']
     text_color = tuple(config['text_color'])
     stroke_color = tuple(config['stroke_color'])
     stroke_width = config['stroke_width']
 
-    with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
-        caption_text = f.read().strip()
+    try:
+        with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
+            caption_text = f.read().strip()
+    except FileNotFoundError:
+        safe_print("Error: caption.txt not found. Please create it.")
+        sys.exit(1)
 
-    # Note: This part will only work when running as a script, not from the EXE
+
     if os.path.exists(input_folder):
         image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
         if image_files:
-            process_images(image_files, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width)
+            # Example of running with default "Automatic" mode
+            process_images(
+                image_paths=image_files,
+                output_folder=output_folder,
+                caption_text=caption_text,
+                font_path=font_path,
+                font_size_divisor=font_size_divisor,
+                text_width_ratio=text_width_ratio,
+                text_color=text_color,
+                stroke_color=stroke_color,
+                stroke_width=stroke_width
+            )
+        else:
+            safe_print(f"No images found in the '{input_folder}' directory.")
+    else:
+        safe_print(f"Input folder '{input_folder}' not found.")
+        os.makedirs(input_folder, exist_ok=True)
+        safe_print(f"Created folder '{input_folder}'. Please add images to it and run again.")
