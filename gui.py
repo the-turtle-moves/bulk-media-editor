@@ -50,6 +50,21 @@ class App(tk.Tk):
         self.control_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
         self.control_frame.pack_propagate(False)
 
+        # Caption Input
+        self.caption_frame = tk.LabelFrame(self.control_frame, text="Caption Text")
+        self.caption_frame.pack(pady=10, fill=tk.X)
+        self.caption_text_box = tk.Text(self.caption_frame, height=4)
+        self.caption_text_box.pack(pady=5, padx=5, fill=tk.X)
+
+        # Output Folder
+        self.output_folder_frame = tk.LabelFrame(self.control_frame, text="Output Folder")
+        self.output_folder_frame.pack(pady=10, fill=tk.X)
+        self.output_folder_path = tk.StringVar(value=self.config.get('output_folder', 'captioned_images'))
+        self.output_folder_entry = tk.Entry(self.output_folder_frame, textvariable=self.output_folder_path)
+        self.output_folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=5)
+        self.browse_button = tk.Button(self.output_folder_frame, text="...", command=self.select_output_folder)
+        self.browse_button.pack(side=tk.RIGHT, padx=5, pady=5)
+
         # Placement Mode
         self.mode_frame = tk.LabelFrame(self.control_frame, text="Placement Mode")
         self.mode_frame.pack(pady=10, fill=tk.X)
@@ -60,6 +75,11 @@ class App(tk.Tk):
 
         self.start_button = tk.Button(self.control_frame, text="Start Processing", command=self.start_processing)
         self.start_button.pack(pady=20, fill=tk.X)
+
+    def select_output_folder(self):
+        folder_selected = filedialog.askdirectory(title="Select Output Folder")
+        if folder_selected:
+            self.output_folder_path.set(folder_selected)
 
     def on_file_select(self, event=None):
         selection = self.listbox.curselection()
@@ -195,7 +215,11 @@ class App(tk.Tk):
             messagebox.showwarning("No Files", "Please add images to the list first.")
             return
 
-        output_folder = self.config['output_folder']
+        output_folder = self.output_folder_path.get()
+        if not output_folder:
+            messagebox.showwarning("No Output Folder", "Please select an output folder.")
+            return
+
         if os.path.exists(output_folder):
             try:
                 shutil.rmtree(output_folder)
@@ -219,12 +243,14 @@ class App(tk.Tk):
                 return
 
         try:
-            with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
-                caption_text = f.read().strip()
+            caption_text = self.caption_text_box.get("1.0", tk.END).strip()
+            if not caption_text:
+                messagebox.showwarning("No Caption", "Please enter caption text.")
+                return
 
             process_images(
                 image_paths=files_to_process,
-                output_folder=self.config['output_folder'],
+                output_folder=output_folder,
                 caption_text=caption_text,
                 font_path=resource_path(self.config['font_path']),
                 font_size_divisor=self.config['font_size_divisor'],

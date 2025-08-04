@@ -154,6 +154,10 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
 
 
         # --- DRAWING LOGIC ---
+        # For a more authentic "TikTok" feel, we'll draw a soft shadow first.
+        shadow_offset = max(1, int(stroke_width * 1.5)) # Make shadow slightly larger than the stroke
+        shadow_color = (0, 0, 0, 150) # Semi-transparent black for a softer shadow
+
         for i, line in enumerate(lines):
             # For automatic, calculate x centered for each line
             if not x_coords:
@@ -164,7 +168,15 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
                 # For manual, use pre-calculated x
                 x = x_coords[i]
 
+            # 1. Draw the soft shadow by drawing the text at several offset positions
+            draw.text((x - shadow_offset, current_y), line, font=font, fill=shadow_color)
+            draw.text((x + shadow_offset, current_y), line, font=font, fill=shadow_color)
+            draw.text((x, current_y - shadow_offset), line, font=font, fill=shadow_color)
+            draw.text((x, current_y + shadow_offset), line, font=font, fill=shadow_color)
+            
+            # 2. Draw the main text with its original crisp stroke on top
             draw.text((x, current_y), line, font=font, fill=text_color, stroke_width=stroke_width, stroke_fill=stroke_color)
+            
             current_y += line_height
 
         # --- SAVE IMAGE ---
@@ -174,49 +186,3 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
         base_image.save(output_path)
 
     safe_print(f"✅ Success! All images have been captioned and saved in the \"{output_folder}\" folder.")
-
-
-if __name__ == "__main__":
-    # This part of the script is for command-line execution and testing.
-    # It won't be used by the GUI but is good for direct script runs.
-    with open(resource_path('config.json'), 'r') as f:
-        config = json.load(f)
-
-    input_folder = config.get('input_folder', 'IMG_7280') # Default to IMG_7280 if not specified
-    output_folder = config['output_folder']
-    font_path = resource_path(config['font_path'])
-    font_size_divisor = config['font_size_divisor']
-    text_width_ratio = config['text_width_ratio']
-    text_color = tuple(config['text_color'])
-    stroke_color = tuple(config['stroke_color'])
-    stroke_width = config['stroke_width']
-
-    try:
-        with open(resource_path('caption.txt'), 'r', encoding='utf-8') as f:
-            caption_text = f.read().strip()
-    except FileNotFoundError:
-        safe_print("Error: caption.txt not found. Please create it.")
-        sys.exit(1)
-
-
-    if os.path.exists(input_folder):
-        image_files = [os.path.join(input_folder, f) for f in os.listdir(input_folder) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-        if image_files:
-            # Example of running with default "Automatic" mode
-            process_images(
-                image_paths=image_files,
-                output_folder=output_folder,
-                caption_text=caption_text,
-                font_path=font_path,
-                font_size_divisor=font_size_divisor,
-                text_width_ratio=text_width_ratio,
-                text_color=text_color,
-                stroke_color=stroke_color,
-                stroke_width=stroke_width
-            )
-        else:
-            safe_print(f"No images found in the '{input_folder}' directory.")
-    else:
-        safe_print(f"Input folder '{input_folder}' not found.")
-        os.makedirs(input_folder, exist_ok=True)
-        safe_print(f"Created folder '{input_folder}'. Please add images to it and run again.")

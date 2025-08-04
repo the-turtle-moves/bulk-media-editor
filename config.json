@@ -1,5 +1,4 @@
 {
-    "input_folder": "IMG_7280",
     "output_folder": "captioned_images",
     "font_path": "TikTokSans-VariableFont_opsz,slnt,wdth,wght.ttf",
     "font_size_divisor": 10,
