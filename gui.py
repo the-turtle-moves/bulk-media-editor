@@ -73,6 +73,25 @@ class App(tk.Tk):
         tk.Radiobutton(self.mode_frame, text="Manual - Same for All", variable=self.placement_mode, value="Manual - Same for All").pack(anchor=tk.W)
         tk.Radiobutton(self.mode_frame, text="Manual - Individual", variable=self.placement_mode, value="Manual - Individual").pack(anchor=tk.W)
 
+        # Resolution Settings
+        self.resolution_frame = tk.LabelFrame(self.control_frame, text="Resize Options")
+        self.resolution_frame.pack(pady=10, fill=tk.X)
+        self.resize_enabled = tk.BooleanVar(value=False)
+        self.resize_checkbox = tk.Checkbutton(self.resolution_frame, text="Resize images to custom resolution", variable=self.resize_enabled)
+        self.resize_checkbox.pack(anchor=tk.W)
+        self.resolution_entry_frame = tk.Frame(self.resolution_frame)
+        self.resolution_entry_frame.pack(fill=tk.X)
+        self.width_label = tk.Label(self.resolution_entry_frame, text="Width:")
+        self.width_label.pack(side=tk.LEFT, padx=5)
+        self.width_var = tk.StringVar(value="1920")
+        self.width_entry = tk.Entry(self.resolution_entry_frame, textvariable=self.width_var, width=7)
+        self.width_entry.pack(side=tk.LEFT)
+        self.height_label = tk.Label(self.resolution_entry_frame, text="Height:")
+        self.height_label.pack(side=tk.LEFT, padx=5)
+        self.height_var = tk.StringVar(value="1080")
+        self.height_entry = tk.Entry(self.resolution_entry_frame, textvariable=self.height_var, width=7)
+        self.height_entry.pack(side=tk.LEFT)
+
         self.start_button = tk.Button(self.control_frame, text="Start Processing", command=self.start_processing)
         self.start_button.pack(pady=20, fill=tk.X)
 
@@ -248,6 +267,19 @@ class App(tk.Tk):
                 messagebox.showwarning("No Caption", "Please enter caption text.")
                 return
 
+            resolution = None
+            if self.resize_enabled.get():
+                try:
+                    width = int(self.width_var.get())
+                    height = int(self.height_var.get())
+                    if width > 0 and height > 0:
+                        resolution = (width, height)
+                    else:
+                        raise ValueError()
+                except ValueError:
+                    messagebox.showerror("Invalid Resolution", "Please enter valid, positive integers for width and height.")
+                    return
+
             process_images(
                 image_paths=files_to_process,
                 output_folder=output_folder,
@@ -258,9 +290,9 @@ class App(tk.Tk):
                 text_color=tuple(self.config['text_color']),
                 stroke_color=tuple(self.config['stroke_color']),
                 stroke_width=self.config['stroke_width'],
-                # --- New parameters ---
                 placement_mode=mode,
-                manual_placements=self.manual_placements
+                manual_placements=self.manual_placements,
+                resolution=resolution
             )
             messagebox.showinfo("Success", "Image processing complete!")
         except Exception as e:

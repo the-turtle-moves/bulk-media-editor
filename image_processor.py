@@ -9,6 +9,34 @@ import mediapipe as mp
 import numpy as np
 import json
 
+def resize_and_crop(image, target_width, target_height):
+    """
+    Resizes an image to a target resolution by cropping and scaling.
+    """
+    original_width, original_height = image.size
+    target_aspect = target_width / target_height
+    original_aspect = original_width / original_height
+
+    if original_aspect > target_aspect:
+        # Original image is wider than target, crop width
+        new_width = int(target_aspect * original_height)
+        left = (original_width - new_width) / 2
+        top = 0
+        right = left + new_width
+        bottom = original_height
+        image = image.crop((left, top, right, bottom))
+    elif original_aspect < target_aspect:
+        # Original image is taller than target, crop height
+        new_height = int(original_width / target_aspect)
+        left = 0
+        top = (original_height - new_height) / 2
+        right = original_width
+        bottom = top + new_height
+        image = image.crop((left, top, right, bottom))
+
+    # Resize the cropped image to the target resolution
+    return image.resize((target_width, target_height), Image.LANCZOS)
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """ 
     try:
@@ -23,7 +51,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, placement_mode="Automatic", manual_placements=None):
+def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, placement_mode="Automatic", manual_placements=None, resolution=None):
     """
     Processes a list of images to add a caption based on the selected placement mode.
     """
@@ -47,6 +75,10 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
     for image_path in tqdm(image_paths, desc="Captioning Images", disable=not sys.stdout):
         filename = os.path.basename(image_path)
         base_image = Image.open(image_path).convert("RGBA")
+
+        if resolution:
+            base_image = resize_and_crop(base_image, resolution[0], resolution[1])
+
         draw = ImageDraw.Draw(base_image)
         original_width, original_height = base_image.size
 

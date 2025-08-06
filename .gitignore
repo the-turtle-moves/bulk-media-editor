@@ -1,9 +1,9 @@
 IMG_7280
 caption.txt
 captioned_images*
-*.ttf
 __pycache__
 build
 dist
 gui.spec
 *.exe
+*.JPG
