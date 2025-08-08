@@ -147,19 +147,20 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None):
+def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None):
     """
     Processes a list of images to add a caption based on the selected placement mode.
     """
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
+    if image_settings is None:
+        image_settings = {}
+
     mp_face_detection = mp.solutions.face_detection
     face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
 
     safe_print(f"Starting to process {len(image_paths)} images...")
-
-    
 
     for image_path in tqdm(image_paths, desc="Captioning Images", disable=not sys.stdout):
         filename = os.path.basename(image_path)
@@ -171,38 +172,46 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
         draw = ImageDraw.Draw(base_image)
         original_width, original_height = base_image.size
 
+        settings = image_settings.get(image_path, {})
+        scale = settings.get('scale', 1.0)
+        
         # --- CAPTION STYLING LOGIC ---
+        scaled_font_size_divisor = font_size_divisor / scale
+        scaled_stroke_width = int(stroke_width * scale)
+
         lines, block_height, font = draw_caption(
             draw,
             caption_text,
             font_path,
-            font_size_divisor,
+            scaled_font_size_divisor,
             text_width_ratio,
             text_color,
             stroke_color,
-            stroke_width,
+            scaled_stroke_width,
             original_width,
             original_height
         )
 
         # --- PLACEMENT LOGIC ---
-        current_y = get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector)
+        x = settings.get('x')
+        y = settings.get('y')
+
+        wrapped_caption = "\n".join(lines)
+        tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
+
+        if x is None:
+            x = (original_width - tw) / 2
+        if y is None:
+            y = get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector)
 
 
         # --- DRAWING LOGIC ---
-        wrapped_caption = "\n".join(lines)
-        tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=stroke_width)
-
-        x = (original_width - tw) / 2
-
-        y = current_y
-
         draw.multiline_text(
             (x, y),
             wrapped_caption,
             font=font,
             fill=text_color,
-            stroke_width=stroke_width,
+            stroke_width=scaled_stroke_width,
             stroke_fill=stroke_color,
             spacing=4,
             align="center"

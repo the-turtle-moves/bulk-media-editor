@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords
 import textwrap
+import math
 
 class App(tk.Tk):
     def __init__(self):
@@ -20,6 +21,12 @@ class App(tk.Tk):
         self.current_preview_image = None
         self.original_image_for_preview = None
         self.preview_image_path = None
+
+        self.image_settings = {}  # path -> {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False}
+        self.drag_info = {'start_x_offset': 0, 'start_y_offset': 0, 'is_dragging': False}
+        self.resize_info = {'is_resizing': False, 'start_dist': 1, 'start_scale': 1}
+        self.caption_bbox_on_preview = None
+        self.resize_handle_bbox = None
 
         self.mp_face_detection = mp.solutions.face_detection
         self.face_detector = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
@@ -47,6 +54,10 @@ class App(tk.Tk):
         self.preview_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.preview_label = tk.Label(self.preview_frame, bg='gray80')
         self.preview_label.pack(fill=tk.BOTH, expand=True)
+        self.preview_label.bind("<ButtonPress-1>", self.on_mouse_press)
+        self.preview_label.bind("<ButtonRelease-1>", self.on_mouse_release)
+        self.preview_label.bind("<B1-Motion>", self.on_mouse_motion)
+
 
         # Right Panel (Controls)
         self.control_frame = tk.Frame(self.main_frame, width=200)
@@ -68,8 +79,6 @@ class App(tk.Tk):
         self.output_folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=5)
         self.browse_button = tk.Button(self.output_folder_frame, text="...", command=self.select_output_folder)
         self.browse_button.pack(side=tk.RIGHT, padx=5, pady=5)
-
-        
 
         # Resolution Settings
         self.resolution_frame = tk.LabelFrame(self.control_frame, text="Resize Options")
@@ -93,6 +102,62 @@ class App(tk.Tk):
         self.start_button = tk.Button(self.control_frame, text="Start Processing", command=self.start_processing)
         self.start_button.pack(pady=20, fill=tk.X)
 
+    def on_mouse_press(self, event):
+        if not self.preview_image_path: return
+
+        if self.resize_handle_bbox and (self.resize_handle_bbox[0] <= event.x <= self.resize_handle_bbox[2] and self.resize_handle_bbox[1] <= event.y <= self.resize_handle_bbox[3]):
+            self.resize_info['is_resizing'] = True
+            settings = self.image_settings[self.preview_image_path]
+            
+            caption_center_x = self.caption_bbox_on_preview[0]
+            caption_center_y = self.caption_bbox_on_preview[1]
+            self.resize_info['start_dist'] = math.hypot(event.x - caption_center_x, event.y - caption_center_y)
+            self.resize_info['start_scale'] = settings.get('scale', 1.0)
+
+        elif self.caption_bbox_on_preview and (self.caption_bbox_on_preview[0] <= event.x <= self.caption_bbox_on_preview[2] and self.caption_bbox_on_preview[1] <= event.y <= self.caption_bbox_on_preview[3]):
+            self.drag_info['is_dragging'] = True
+            self.drag_info['start_x_offset'] = event.x - self.caption_bbox_on_preview[0]
+            self.drag_info['start_y_offset'] = event.y - self.caption_bbox_on_preview[1]
+
+    def on_mouse_motion(self, event):
+        if not self.preview_image_path: return
+
+        if self.resize_info['is_resizing']:
+            settings = self.image_settings[self.preview_image_path]
+            caption_center_x = self.caption_bbox_on_preview[0]
+            caption_center_y = self.caption_bbox_on_preview[1]
+            current_dist = math.hypot(event.x - caption_center_x, event.y - caption_center_y)
+            
+            scale_factor = current_dist / self.resize_info['start_dist'] if self.resize_info['start_dist'] > 0 else 1
+            new_scale = self.resize_info['start_scale'] * scale_factor
+            settings['scale'] = max(0.1, new_scale)
+            self.display_image(self.preview_image_path)
+
+        elif self.drag_info['is_dragging']:
+            settings = self.image_settings[self.preview_image_path]
+            settings['manual_placement'] = True
+            
+            img_w, img_h = self.original_image_for_preview.size
+            panel_width = self.preview_frame.winfo_width()
+            panel_height = self.preview_frame.winfo_height()
+            ratio = min(panel_width / img_w, panel_height / img_h)
+            
+            new_preview_x = event.x - self.drag_info['start_x_offset']
+            new_preview_y = event.y - self.drag_info['start_y_offset']
+
+            preview_w, preview_h = int(img_w * ratio), int(img_h * ratio)
+            offset_x = (panel_width - preview_w) / 2
+            offset_y = (panel_height - preview_h) / 2
+
+            settings['x'] = (new_preview_x - offset_x) / ratio
+            settings['y'] = (new_preview_y - offset_y) / ratio
+            
+            self.display_image(self.preview_image_path)
+
+    def on_mouse_release(self, event):
+        self.drag_info['is_dragging'] = False
+        self.resize_info['is_resizing'] = False
+
     def select_output_folder(self):
         folder_selected = filedialog.askdirectory(title="Select Output Folder")
         if folder_selected:
@@ -106,11 +171,12 @@ class App(tk.Tk):
         selected_index = selection[0]
         self.preview_image_path = self.listbox.get(selected_index)
         
+        if self.preview_image_path not in self.image_settings:
+            self.image_settings[self.preview_image_path] = {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False}
+
         self.display_image(self.preview_image_path)
 
     def on_caption_change(self, event=None):
-        # This flag is set by Tkinter when the text is modified.
-        # We need to clear it after reading the content.
         self.caption_text_box.edit_modified(False)
         if self.preview_image_path:
             self.display_image(self.preview_image_path)
@@ -118,12 +184,16 @@ class App(tk.Tk):
     def display_image(self, image_path):
         try:
             self.original_image_for_preview = Image.open(image_path).convert("RGBA")
-            
-            # Draw on a copy
             image_to_display = self.original_image_for_preview.copy()
 
-            # Get current caption text for preview
             caption_text = self.caption_text_box.get("1.0", tk.END).strip()
+            settings = self.image_settings.get(image_path, {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False})
+            scale = settings.get('scale', 1.0)
+
+            wrapped_caption = ""
+            font = None
+            tw, th = 0, 0
+
             if caption_text:
                 draw = ImageDraw.Draw(image_to_display)
                 font_path = resource_path(self.config['font_path'])
@@ -131,48 +201,44 @@ class App(tk.Tk):
                 text_width_ratio = self.config['text_width_ratio']
                 text_color = tuple(self.config['text_color'])
                 stroke_color = tuple(self.config['stroke_color'])
-                stroke_width = self.config['stroke_width']
+                base_stroke_width = self.config['stroke_width']
+
+                scaled_font_size_divisor = font_size_divisor / scale
+                scaled_stroke_width = int(base_stroke_width * scale)
 
                 lines, block_height, font = draw_caption(
-                    draw,
-                    caption_text,
-                    font_path,
-                    font_size_divisor,
-                    text_width_ratio,
-                    text_color,
-                    stroke_color,
-                    stroke_width,
-                    image_to_display.width,
-                    image_to_display.height
+                    draw, caption_text, font_path, scaled_font_size_divisor,
+                    text_width_ratio, text_color, stroke_color, scaled_stroke_width,
+                    image_to_display.width, image_to_display.height
                 )
-
-                current_y = get_automatic_placement_coords(image_path, image_to_display.width, image_to_display.height, block_height, self.face_detector)
                 wrapped_caption = "\n".join(lines)
                 
-                # Use a dummy draw object to calculate text size for x position
-                temp_draw = ImageDraw.Draw(Image.new("RGBA", (1,1)))
-                font_size = int(image_to_display.width / font_size_divisor)
-                font = ImageFont.truetype(font_path, font_size)
-                tw, th = multiline_bbox(temp_draw, wrapped_caption, font, stroke_w=stroke_width)
-                x = (image_to_display.width - tw) / 2
-                y = current_y
+                tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
 
+                # Placement Logic
+                is_manual = settings.get('manual_placement', False)
+
+                if not is_manual:
+                    # Always recenter horizontally in auto mode
+                    settings['x'] = (image_to_display.width - tw) / 2
+                
+                # Set initial Y position if not set yet (for both modes)
+                if settings.get('y') is None:
+                    settings['y'] = get_automatic_placement_coords(image_path, image_to_display.width, image_to_display.height, block_height, self.face_detector)
+
+                self.image_settings[image_path] = settings
+                x, y = settings['x'], settings['y']
+                
                 draw.multiline_text(
-                    (x, y),
-                    wrapped_caption,
-                    font=font,
-                    fill=text_color,
-                    stroke_width=stroke_width,
-                    stroke_fill=stroke_color,
-                    spacing=4,
-                    align="center"
+                    (x, y), wrapped_caption, font=font, fill=text_color,
+                    stroke_width=scaled_stroke_width, stroke_fill=stroke_color,
+                    spacing=4, align="center"
                 )
 
-            # Resize for preview
             panel_width = self.preview_frame.winfo_width()
             panel_height = self.preview_frame.winfo_height()
             
-            if panel_width < 2 or panel_height < 2: # Frame not rendered yet
+            if panel_width < 2 or panel_height < 2:
                 self.after(50, lambda: self.display_image(image_path))
                 return
 
@@ -182,20 +248,46 @@ class App(tk.Tk):
             
             resized_image = image_to_display.resize((new_w, new_h), Image.LANCZOS)
             
+            if caption_text:
+                preview_x = settings['x'] * ratio
+                preview_y = settings['y'] * ratio
+                preview_tw = tw * ratio
+                preview_th = th * ratio
+
+                offset_x = (panel_width - new_w) / 2
+                offset_y = (panel_height - new_h) / 2
+                
+                self.caption_bbox_on_preview = (preview_x + offset_x, preview_y + offset_y, preview_x + offset_x + preview_tw, preview_y + offset_y + preview_th)
+
+                handle_size = 10
+                handle_x = self.caption_bbox_on_preview[2]
+                handle_y = self.caption_bbox_on_preview[3]
+                self.resize_handle_bbox = (handle_x - handle_size/2, handle_y - handle_size/2, handle_x + handle_size/2, handle_y + handle_size/2)
+                
+                preview_draw = ImageDraw.Draw(resized_image)
+                handle_draw_x1 = self.resize_handle_bbox[0] - offset_x
+                handle_draw_y1 = self.resize_handle_bbox[1] - offset_y
+                handle_draw_x2 = self.resize_handle_bbox[2] - offset_x
+                handle_draw_y2 = self.resize_handle_bbox[3] - offset_y
+                preview_draw.rectangle(
+                    (handle_draw_x1, handle_draw_y1, handle_draw_x2, handle_draw_y2),
+                    fill="red", outline="white"
+                )
+            else:
+                self.caption_bbox_on_preview = None
+                self.resize_handle_bbox = None
+
             self.current_preview_image = ImageTk.PhotoImage(resized_image)
             self.preview_label.config(image=self.current_preview_image)
             
         except Exception as e:
-            self.preview_label.config(image=None, text=f"""Cannot preview\n{os.path.basename(image_path)}""")
+            self.preview_label.config(image=None, text=f"""Cannot preview\n{os.path.basename(image_path)}""" )
             print(f"Error displaying image: {e}")
-
-    
-
 
     def add_images(self):
         files = filedialog.askopenfilenames(
             title="Select Images",
-            filetypes=(("Image Files", "*.jpg *.jpeg *.png *.bmp"), ("All files", "*.*"))
+            filetypes=(("Image Files", "*.jpg *.jpeg *.png *.bmp"), ("All files", "*.*" ))
         )
         if not files: return
 
@@ -203,7 +295,6 @@ class App(tk.Tk):
             if f not in self.listbox.get(0, tk.END):
                 self.listbox.insert(tk.END, f)
         
-        # If this is the first image, select it
         if self.listbox.size() > 0 and not self.listbox.curselection():
             self.listbox.select_set(0)
             self.on_file_select()
@@ -212,7 +303,6 @@ class App(tk.Tk):
         selected_indices = self.listbox.curselection()
         if not selected_indices: return
 
-        # Clear preview if no images are left, otherwise select the next one
         if self.listbox.size() == 0:
             self.preview_label.config(image=None, text="")
             self.original_image_for_preview = None
@@ -222,7 +312,6 @@ class App(tk.Tk):
             new_selection_index = min(selected_indices[0], self.listbox.size() - 1)
             self.listbox.select_set(new_selection_index)
             self.on_file_select()
-
 
     def start_processing(self):
         files_to_process = self.listbox.get(0, tk.END)
@@ -242,8 +331,6 @@ class App(tk.Tk):
             except OSError as e:
                 messagebox.showerror("Error", f"Error clearing output folder: {e}")
                 return
-
-        
 
         try:
             caption_text = self.caption_text_box.get("1.0", tk.END).strip()
@@ -274,15 +361,14 @@ class App(tk.Tk):
                 text_color=tuple(self.config['text_color']),
                 stroke_color=tuple(self.config['stroke_color']),
                 stroke_width=self.config['stroke_width'],
-                resolution=resolution
+                resolution=resolution,
+                image_settings=self.image_settings
             )
             messagebox.showinfo("Success", "Image processing complete!")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
-            # Also print to console for more details
             import traceback
             traceback.print_exc()
-
 
 if __name__ == "__main__":
     app = App()
