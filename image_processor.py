@@ -37,6 +37,19 @@ def resize_and_crop(image, target_width, target_height):
     # Resize the cropped image to the target resolution
     return image.resize((target_width, target_height), Image.LANCZOS)
 
+def multiline_bbox(draw, text, font, stroke_w=0, **kw):
+    """Return (w, h) for multiline text across Pillow versions."""
+    if hasattr(draw, "multiline_textbbox"):          # Pillow >= 8.0
+        l, t, r, b = draw.multiline_textbbox(
+            (0, 0), text, font=font,
+            stroke_width=stroke_w, **kw
+        )
+        return r - l, b - t
+    else:                                            # legacy fallback
+        return draw.multiline_textsize(
+            text, font=font, stroke_width=stroke_w, **kw
+        )
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """ 
     try:
@@ -186,30 +199,32 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
 
 
         # --- DRAWING LOGIC ---
-        # For a more authentic "TikTok" feel, we'll draw a soft shadow first.
-        shadow_offset = max(1, int(stroke_width * 1.5)) # Make shadow slightly larger than the stroke
-        shadow_color = (0, 0, 0, 150) # Semi-transparent black for a softer shadow
+        wrapped_caption = "\n".join(lines)
+        tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=stroke_width)
 
-        for i, line in enumerate(lines):
-            # For automatic, calculate x centered for each line
-            if not x_coords:
-                line_bbox = draw.textbbox((0, 0), line, font=font)
-                line_width = line_bbox[2] - line_bbox[0]
-                x = (original_width - line_width) / 2
-            else:
-                # For manual, use pre-calculated x
-                x = x_coords[i]
+        x = 0
+        if placement_mode in ["Manual - Same for All", "Manual - Individual"]:
+            pos = manual_pos_for_all if placement_mode == "Manual - Same for All" else manual_placements.get(image_path)
+            if pos:
+                manual_x, _ = pos
+                x = manual_x - (tw / 2)
+            else: # Fallback
+                x = (original_width - tw) / 2
+        else: # Automatic
+            x = (original_width - tw) / 2
 
-            # 1. Draw the soft shadow by drawing the text at several offset positions
-            draw.text((x - shadow_offset, current_y), line, font=font, fill=shadow_color)
-            draw.text((x + shadow_offset, current_y), line, font=font, fill=shadow_color)
-            draw.text((x, current_y - shadow_offset), line, font=font, fill=shadow_color)
-            draw.text((x, current_y + shadow_offset), line, font=font, fill=shadow_color)
-            
-            # 2. Draw the main text with its original crisp stroke on top
-            draw.text((x, current_y), line, font=font, fill=text_color, stroke_width=stroke_width, stroke_fill=stroke_color)
-            
-            current_y += line_height
+        y = current_y
+
+        draw.multiline_text(
+            (x, y),
+            wrapped_caption,
+            font=font,
+            fill=text_color,
+            stroke_width=stroke_width,
+            stroke_fill=stroke_color,
+            spacing=4,
+            align="center"
+        )
 
         # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
