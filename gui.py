@@ -7,7 +7,7 @@ from PIL import Image, ImageTk, ImageDraw, ImageFont
 import mediapipe as mp
 import cv2
 import numpy as np
-from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords
+from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print
 import textwrap
 import math
 
@@ -22,9 +22,9 @@ class App(tk.Tk):
         self.original_image_for_preview = None
         self.preview_image_path = None
 
-        self.image_settings = {}  # path -> {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False}
+        self.image_settings = {}  # path -> {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False}
         self.drag_info = {'start_x_offset': 0, 'start_y_offset': 0, 'is_dragging': False}
-        self.resize_info = {'is_resizing': False, 'start_dist': 1, 'start_scale': 1}
+        self.resize_info = {'is_resizing': False, 'start_bbox': (0,0,0,0), 'start_scale_x': 1.0, 'start_scale_y': 1.0}
         self.caption_bbox_on_preview = None
         self.resize_handle_bbox = None
 
@@ -109,10 +109,11 @@ class App(tk.Tk):
             self.resize_info['is_resizing'] = True
             settings = self.image_settings[self.preview_image_path]
             
-            caption_center_x = self.caption_bbox_on_preview[0]
-            caption_center_y = self.caption_bbox_on_preview[1]
-            self.resize_info['start_dist'] = math.hypot(event.x - caption_center_x, event.y - caption_center_y)
-            self.resize_info['start_scale'] = settings.get('scale', 1.0)
+            self.resize_info['start_bbox'] = self.caption_bbox_on_preview
+            self.resize_info['start_scale_x'] = settings.get('scale_x', 1.0)
+            self.resize_info['start_scale_y'] = settings.get('scale_y', 1.0)
+            self.resize_info['start_mouse_x'] = event.x
+            self.resize_info['start_mouse_y'] = event.y
 
         elif self.caption_bbox_on_preview and (self.caption_bbox_on_preview[0] <= event.x <= self.caption_bbox_on_preview[2] and self.caption_bbox_on_preview[1] <= event.y <= self.caption_bbox_on_preview[3]):
             self.drag_info['is_dragging'] = True
@@ -124,13 +125,25 @@ class App(tk.Tk):
 
         if self.resize_info['is_resizing']:
             settings = self.image_settings[self.preview_image_path]
-            caption_center_x = self.caption_bbox_on_preview[0]
-            caption_center_y = self.caption_bbox_on_preview[1]
-            current_dist = math.hypot(event.x - caption_center_x, event.y - caption_center_y)
             
-            scale_factor = current_dist / self.resize_info['start_dist'] if self.resize_info['start_dist'] > 0 else 1
-            new_scale = self.resize_info['start_scale'] * scale_factor
-            settings['scale'] = max(0.1, new_scale)
+            start_bbox = self.resize_info['start_bbox']
+            start_w = start_bbox[2] - start_bbox[0]
+            start_h = start_bbox[3] - start_bbox[1]
+
+            if start_w <= 0 or start_h <= 0: return
+
+            delta_x = event.x - self.resize_info['start_mouse_x']
+            delta_y = event.y - self.resize_info['start_mouse_y']
+
+            new_w = start_w + delta_x
+            new_h = start_h + delta_y
+            
+            scale_factor_x = new_w / start_w
+            scale_factor_y = new_h / start_h
+
+            settings['scale_x'] = max(0.1, self.resize_info['start_scale_x'] * scale_factor_x)
+            settings['scale_y'] = max(0.1, self.resize_info['start_scale_y'] * scale_factor_y)
+            
             self.display_image(self.preview_image_path)
 
         elif self.drag_info['is_dragging']:
@@ -172,7 +185,7 @@ class App(tk.Tk):
         self.preview_image_path = self.listbox.get(selected_index)
         
         if self.preview_image_path not in self.image_settings:
-            self.image_settings[self.preview_image_path] = {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False}
+            self.image_settings[self.preview_image_path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False}
 
         self.display_image(self.preview_image_path)
 
@@ -187,8 +200,9 @@ class App(tk.Tk):
             image_to_display = self.original_image_for_preview.copy()
 
             caption_text = self.caption_text_box.get("1.0", tk.END).strip()
-            settings = self.image_settings.get(image_path, {'x': None, 'y': None, 'scale': 1.0, 'manual_placement': False})
-            scale = settings.get('scale', 1.0)
+            settings = self.image_settings.get(image_path, {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False})
+            scale_x = settings.get('scale_x', 1.0)
+            scale_y = settings.get('scale_y', 1.0)
 
             wrapped_caption = ""
             font = None
@@ -203,13 +217,19 @@ class App(tk.Tk):
                 stroke_color = tuple(self.config['stroke_color'])
                 base_stroke_width = self.config['stroke_width']
 
-                scaled_font_size_divisor = font_size_divisor / scale
-                scaled_stroke_width = int(base_stroke_width * scale)
+                # Use an estimated average scale for font size and stroke to maintain visual consistency
+                avg_scale = (scale_x + scale_y) / 2
+                scaled_font_size_divisor = font_size_divisor / avg_scale
+                scaled_stroke_width = int(base_stroke_width * avg_scale)
+
+                # Calculate the target width and height for the caption based on scaling
+                target_caption_width = image_to_display.width * text_width_ratio * scale_x
 
                 lines, block_height, font = draw_caption(
                     draw, caption_text, font_path, scaled_font_size_divisor,
                     text_width_ratio, text_color, stroke_color, scaled_stroke_width,
-                    image_to_display.width, image_to_display.height
+                    image_to_display.width, image_to_display.height,
+                    target_caption_width=target_caption_width
                 )
                 wrapped_caption = "\n".join(lines)
                 
@@ -281,8 +301,8 @@ class App(tk.Tk):
             self.preview_label.config(image=self.current_preview_image)
             
         except Exception as e:
-            self.preview_label.config(image=None, text=f"""Cannot preview\n{os.path.basename(image_path)}""" )
-            print(f"Error displaying image: {e}")
+            self.preview_label.config(image=None, text=f"""Cannot preview {os.path.basename(image_path)}""")
+            safe_print(f"Error displaying image: {e}")
 
     def add_images(self):
         files = filedialog.askopenfilenames(
@@ -301,7 +321,16 @@ class App(tk.Tk):
 
     def remove_selected(self):
         selected_indices = self.listbox.curselection()
-        if not selected_indices: return
+        if not selected_indices:
+            return
+
+        selected_index = selected_indices[0]
+        path_to_remove = self.listbox.get(selected_index)
+
+        self.listbox.delete(selected_index)
+
+        if path_to_remove in self.image_settings:
+            del self.image_settings[path_to_remove]
 
         if self.listbox.size() == 0:
             self.preview_label.config(image=None, text="")
@@ -309,8 +338,9 @@ class App(tk.Tk):
             self.current_preview_image = None
             self.preview_image_path = None
         else:
-            new_selection_index = min(selected_indices[0], self.listbox.size() - 1)
-            self.listbox.select_set(new_selection_index)
+            new_selection_index = min(selected_index, self.listbox.size() - 1)
+            if new_selection_index >= 0:
+                self.listbox.select_set(new_selection_index)
             self.on_file_select()
 
     def start_processing(self):
@@ -327,7 +357,7 @@ class App(tk.Tk):
         if os.path.exists(output_folder):
             try:
                 shutil.rmtree(output_folder)
-                print(f"Cleared existing output folder: {output_folder}")
+                safe_print(f"Cleared existing output folder: {output_folder}")
             except OSError as e:
                 messagebox.showerror("Error", f"Error clearing output folder: {e}")
                 return

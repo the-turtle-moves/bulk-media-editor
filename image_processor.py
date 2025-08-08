@@ -9,7 +9,7 @@ import mediapipe as mp
 import numpy as np
 import json
 
-def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height):
+def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
     font_size = int(original_width / font_size_divisor)
     font = ImageFont.truetype(font_path, font_size)
     
@@ -17,7 +17,7 @@ def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ra
     single_line_width = single_line_bbox[2] - single_line_bbox[0]
     line_height = single_line_bbox[3] - single_line_bbox[1]
     
-    max_text_width = original_width * text_width_ratio
+    max_text_width = target_caption_width if target_caption_width is not None else (original_width * text_width_ratio)
     lines = [caption_text]
     if single_line_width > max_text_width:
         avg_char_width = single_line_width / len(caption_text)
@@ -173,11 +173,15 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
         original_width, original_height = base_image.size
 
         settings = image_settings.get(image_path, {})
-        scale = settings.get('scale', 1.0)
+        scale_x = settings.get('scale_x', 1.0)
+        scale_y = settings.get('scale_y', 1.0)
         
         # --- CAPTION STYLING LOGIC ---
-        scaled_font_size_divisor = font_size_divisor / scale
-        scaled_stroke_width = int(stroke_width * scale)
+        avg_scale = (scale_x + scale_y) / 2
+        scaled_font_size_divisor = font_size_divisor / avg_scale
+        scaled_stroke_width = int(stroke_width * avg_scale)
+
+        target_caption_width = original_width * text_width_ratio * scale_x
 
         lines, block_height, font = draw_caption(
             draw,
@@ -189,7 +193,8 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
             stroke_color,
             scaled_stroke_width,
             original_width,
-            original_height
+            original_height,
+            target_caption_width=target_caption_width
         )
 
         # --- PLACEMENT LOGIC ---
