@@ -1,13 +1,11 @@
 import os
 import sys
-import shutil
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 import textwrap
 import cv2
 import mediapipe as mp
 import numpy as np
-import json
 
 def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
     font_size = int(original_width / font_size_divisor)
@@ -83,7 +81,7 @@ def get_automatic_placement_coords(image_path, original_width, original_height, 
         return cv2.warpAffine(image, M, (nW, nH)), M
 
     def get_face_detections_with_rotation(cv_img):
-        for angle in [0, 15, -15, 30, -30]:
+        for angle in [0, 20, -20, 40, -40, 60, -60, 90, -90]:
             img_to_proc, M = (cv_img, None) if angle == 0 else rotate_image(cv_img, angle)
             results = face_detector.process(cv2.cvtColor(img_to_proc, cv2.COLOR_BGR2RGB))
             if results.detections:
@@ -147,7 +145,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None):
+def process_images(image_paths, output_folder, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None):
     """
     Processes a list of images to add a caption based on the selected placement mode.
     """
@@ -162,7 +160,8 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
 
     safe_print(f"Starting to process {len(image_paths)} images...")
 
-    for image_path in tqdm(image_paths, desc="Captioning Images", disable=not sys.stdout):
+    num_images = len(image_paths)
+    for i, image_path in enumerate(image_paths):
         filename = os.path.basename(image_path)
         base_image = Image.open(image_path).convert("RGBA")
 
@@ -173,59 +172,65 @@ def process_images(image_paths, output_folder, caption_text, font_path, font_siz
         original_width, original_height = base_image.size
 
         settings = image_settings.get(image_path, {})
-        scale_x = settings.get('scale_x', 1.0)
-        scale_y = settings.get('scale_y', 1.0)
-        
-        # --- CAPTION STYLING LOGIC ---
-        avg_scale = (scale_x + scale_y) / 2
-        scaled_font_size_divisor = font_size_divisor / avg_scale
-        scaled_stroke_width = int(stroke_width * avg_scale)
+        caption_text = settings.get('caption', '')
 
-        target_caption_width = original_width * text_width_ratio * scale_x
+        if caption_text:
+            scale_x = settings.get('scale_x', 1.0)
+            scale_y = settings.get('scale_y', 1.0)
+            
+            # --- CAPTION STYLING LOGIC ---
+            avg_scale = (scale_x + scale_y) / 2
+            scaled_font_size_divisor = font_size_divisor / avg_scale
+            scaled_stroke_width = int(stroke_width * avg_scale)
 
-        lines, block_height, font = draw_caption(
-            draw,
-            caption_text,
-            font_path,
-            scaled_font_size_divisor,
-            text_width_ratio,
-            text_color,
-            stroke_color,
-            scaled_stroke_width,
-            original_width,
-            original_height,
-            target_caption_width=target_caption_width
-        )
+            target_caption_width = original_width * text_width_ratio * scale_x
 
-        # --- PLACEMENT LOGIC ---
-        x = settings.get('x')
-        y = settings.get('y')
+            lines, block_height, font = draw_caption(
+                draw,
+                caption_text,
+                font_path,
+                scaled_font_size_divisor,
+                text_width_ratio,
+                text_color,
+                stroke_color,
+                scaled_stroke_width,
+                original_width,
+                original_height,
+                target_caption_width=target_caption_width
+            )
 
-        wrapped_caption = "\n".join(lines)
-        tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
+            # --- PLACEMENT LOGIC ---
+            x = settings.get('x')
+            y = settings.get('y')
 
-        if x is None:
-            x = (original_width - tw) / 2
-        if y is None:
-            y = get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector)
+            wrapped_caption = "\n".join(lines)
+            tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
+
+            if x is None:
+                x = (original_width - tw) / 2
+            if y is None:
+                y = get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector)
 
 
-        # --- DRAWING LOGIC ---
-        draw.multiline_text(
-            (x, y),
-            wrapped_caption,
-            font=font,
-            fill=text_color,
-            stroke_width=scaled_stroke_width,
-            stroke_fill=stroke_color,
-            spacing=4,
-            align="center"
-        )
+            # --- DRAWING LOGIC ---
+            draw.multiline_text(
+                (x, y),
+                wrapped_caption,
+                font=font,
+                fill=text_color,
+                stroke_width=scaled_stroke_width,
+                stroke_fill=stroke_color,
+                spacing=4,
+                align="center"
+            )
 
         # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
         if filename.lower().endswith(('.jpg', '.jpeg')):
             base_image = base_image.convert("RGB")
         base_image.save(output_path)
+
+        if progress_callback:
+            progress_callback(i + 1, num_images)
 
     safe_print(f"✅ Success! All images have been captioned and saved in the \"{output_folder}\" folder.")
