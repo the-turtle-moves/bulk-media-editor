@@ -24,6 +24,7 @@ class App(tk.Tk):
         self.caption_bbox_on_preview = None
         self.resize_handle_bbox = None
         self.updating_caption_box = False
+        self.caption_update_timer = None # For debouncing caption input
 
         self.mp_face_detection = mp.solutions.face_detection
         self.face_detector = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
@@ -166,7 +167,7 @@ class App(tk.Tk):
                 settings['scale_x'] = new_scale_x
                 settings['scale_y'] = new_scale_y
             
-            self.display_image(self.preview_image_path)
+            self.display_image()
 
         elif self.drag_info['is_dragging']:
             settings = self.image_settings[self.preview_image_path]
@@ -198,7 +199,7 @@ class App(tk.Tk):
                 settings['y'] = new_y
                 settings['manual_placement'] = True
             
-            self.display_image(self.preview_image_path)
+            self.display_image()
 
     def on_mouse_release(self, event):
         self.drag_info['is_dragging'] = False
@@ -234,7 +235,7 @@ class App(tk.Tk):
                         self.image_settings[path]['caption'] = new_global_caption
         
         if self.preview_image_path:
-            self.display_image(self.preview_image_path)
+            self.display_image()
 
     def recenter_all_captions(self):
         paths = self.listbox.get(0, tk.END)
@@ -249,7 +250,7 @@ class App(tk.Tk):
                 self.image_settings[path]['y'] = None
         
         if self.preview_image_path:
-            self.display_image(self.preview_image_path)
+            self.display_image()
 
         messagebox.showinfo("Recenter Complete", "All caption positions have been reset to automatic placement.")
 
@@ -261,11 +262,31 @@ class App(tk.Tk):
     def on_file_select(self, event=None):
         selection = self.listbox.curselection()
         if not selection:
+            self.preview_image_path = None
+            self.original_image_for_preview = None
+            self.preview_label.config(image=None, text="")
+            self.current_preview_image = None
             return
         
         selected_index = selection[0]
-        self.preview_image_path = self.listbox.get(selected_index)
+        path = self.listbox.get(selected_index)
+
+        # Prevent reloading if the same image is clicked again
+        if path == self.preview_image_path:
+            return
+
+        self.preview_image_path = path
         
+        # Optimization: Load the image once on selection and cache it.
+        try:
+            self.original_image_for_preview = Image.open(self.preview_image_path).convert("RGBA")
+        except Exception as e:
+            self.original_image_for_preview = None
+            self.current_preview_image = None
+            self.preview_label.config(image=None, text=f'''Cannot preview {os.path.basename(self.preview_image_path)}''')
+            safe_print(f"Error loading image for preview: {e}")
+            return
+
         # Get the global caption before initializing settings for a new image
         global_caption = self.caption_text_box.get("1.0", tk.END).strip()
 
@@ -283,12 +304,19 @@ class App(tk.Tk):
             self.caption_text_box.edit_modified(False) # Reset modified flag
             self.updating_caption_box = False
 
-        self.display_image(self.preview_image_path)
+        self.display_image()
 
     def on_caption_change(self, event=None):
         if self.updating_caption_box:
             return
 
+        # Debounce: cancel previous timer and set a new one
+        if self.caption_update_timer:
+            self.after_cancel(self.caption_update_timer)
+        self.caption_update_timer = self.after(300, self._perform_caption_update)
+
+    def _perform_caption_update(self):
+        """ Contains the logic that was previously in on_caption_change. """
         caption_text = self.caption_text_box.get("1.0", tk.END).strip()
 
         if self.sync_caption_var.get():
@@ -302,13 +330,19 @@ class App(tk.Tk):
                 self.image_settings[self.preview_image_path]['caption'] = caption_text
 
         if self.preview_image_path:
-            self.display_image(self.preview_image_path)
+            self.display_image()
         
+        # Reset the modified flag only after the update is complete
         self.caption_text_box.edit_modified(False)
 
-    def display_image(self, image_path):
+    def display_image(self):
+        # This function now uses the cached self.original_image_for_preview
+        if not self.original_image_for_preview:
+            self.preview_label.config(image=None, text="No image selected or image failed to load.")
+            return
+
+        image_path = self.preview_image_path
         try:
-            self.original_image_for_preview = Image.open(image_path).convert("RGBA")
             image_to_display = self.original_image_for_preview.copy()
 
             settings = self.image_settings.get(image_path, {})
@@ -371,7 +405,7 @@ class App(tk.Tk):
             panel_height = self.preview_frame.winfo_height()
             
             if panel_width < 2 or panel_height < 2:
-                self.after(50, lambda: self.display_image(image_path))
+                self.after(50, lambda: self.display_image())
                 return
 
             img_w, img_h = image_to_display.size
@@ -413,7 +447,7 @@ class App(tk.Tk):
             self.preview_label.config(image=self.current_preview_image)
             
         except Exception as e:
-            self.preview_label.config(image=None, text=f"""Cannot preview {os.path.basename(image_path)}""")
+            self.preview_label.config(image=None, text=f'''Cannot preview {os.path.basename(image_path)}''')
             safe_print(f"Error displaying image: {e}")
 
     def add_images(self):
