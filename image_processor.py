@@ -7,6 +7,22 @@ import cv2
 import mediapipe as mp
 import numpy as np
 
+def replace_quotes(text):
+    text = str(text)
+    in_double = False
+    in_single = False
+    res = ''
+    for char in text:
+        if char == '"':
+            res += '“' if not in_double else '”'
+            in_double = not in_double
+        elif char == "'":
+            res += '‘' if not in_single else '’'
+            in_single = not in_single
+        else:
+            res += char
+    return res
+
 def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
     font_size = int(original_width / font_size_divisor)
     font = ImageFont.truetype(font_path, font_size)
@@ -175,6 +191,7 @@ def process_images(image_paths, output_folder, font_path, font_size_divisor, tex
         caption_text = settings.get('caption', '')
 
         if caption_text:
+            caption_text = replace_quotes(caption_text)
             scale_x = settings.get('scale_x', 1.0)
             scale_y = settings.get('scale_y', 1.0)
             

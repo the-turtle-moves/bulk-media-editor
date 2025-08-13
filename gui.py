@@ -5,7 +5,7 @@ import os
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
-from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print
+from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print, replace_quotes
 
 class App(tk.Tk):
     def __init__(self):
@@ -43,7 +43,9 @@ class App(tk.Tk):
         self.add_button.pack(pady=5, fill=tk.X)
         self.remove_button = tk.Button(self.list_frame, text="Remove Selected", command=self.remove_selected)
         self.remove_button.pack(pady=5, fill=tk.X)
-        self.listbox = tk.Listbox(self.list_frame, selectmode=tk.SINGLE)
+        self.select_all_button = tk.Button(self.list_frame, text="Select All", command=self.select_all_images)
+        self.select_all_button.pack(pady=5, fill=tk.X)
+        self.listbox = tk.Listbox(self.list_frame, selectmode=tk.EXTENDED)
         self.listbox.pack(fill=tk.BOTH, expand=True)
         self.listbox.bind('<<ListboxSelect>>', self.on_file_select)
 
@@ -347,6 +349,7 @@ class App(tk.Tk):
 
             settings = self.image_settings.get(image_path, {})
             caption_text = settings.get('caption', '')
+            caption_text = replace_quotes(caption_text)
             scale_x = settings.get('scale_x', 1.0)
             scale_y = settings.get('scale_y', 1.0)
 
@@ -468,28 +471,35 @@ class App(tk.Tk):
             self.listbox.select_set(0)
             self.on_file_select()
 
+    def select_all_images(self):
+        self.listbox.select_set(0, tk.END)
+        # Trigger on_file_select to update preview if necessary
+        if self.listbox.size() > 0:
+            self.on_file_select()
+
     def remove_selected(self):
         selected_indices = self.listbox.curselection()
         if not selected_indices:
             return
 
-        selected_index = selected_indices[0]
-        path_to_remove = self.listbox.get(selected_index)
+        # Sort indices in descending order to avoid issues when deleting items
+        for index in sorted(selected_indices, reverse=True):
+            path_to_remove = self.listbox.get(index)
+            self.listbox.delete(index)
+            if path_to_remove in self.image_settings:
+                del self.image_settings[path_to_remove]
 
-        self.listbox.delete(selected_index)
-
-        if path_to_remove in self.image_settings:
-            del self.image_settings[path_to_remove]
-
+        # After deletion, update the preview. If no items left, clear preview.
         if self.listbox.size() == 0:
             self.preview_label.config(image=None, text="")
             self.original_image_for_preview = None
             self.current_preview_image = None
             self.preview_image_path = None
         else:
-            new_selection_index = min(selected_index, self.listbox.size() - 1)
-            if new_selection_index >= 0:
-                self.listbox.select_set(new_selection_index)
+            # Try to select the first item if nothing is selected, or the next available item
+            if not self.listbox.curselection():
+                if self.listbox.size() > 0:
+                    self.listbox.select_set(0)
             self.on_file_select()
 
     def start_processing(self):
