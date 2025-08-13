@@ -6,6 +6,7 @@ import textwrap
 import cv2
 import mediapipe as mp
 import numpy as np
+import random
 
 def replace_quotes(text):
     text = str(text)
@@ -40,7 +41,7 @@ def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ra
     
     block_height = len(lines) * line_height
 
-    return lines, block_height, font
+    return lines, block_height, font, font_size
 
 def resize_and_crop(image, target_width, target_height):
     """
@@ -83,8 +84,11 @@ def multiline_bbox(draw, text, font, stroke_w=0, **kw):
             text, font=font, stroke_width=stroke_w, **kw
         )
 
-def get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector):
-    cv_image = cv2.imread(image_path)
+def get_automatic_placement_coords(image_input, original_width, original_height, block_height, face_detector):
+    if isinstance(image_input, str):
+        cv_image = cv2.imread(image_input)
+    else: # Assumes PIL Image
+        cv_image = cv2.cvtColor(np.array(image_input.convert('RGB')), cv2.COLOR_RGB2BGR)
     
     def rotate_image(image, angle):
         h, w = image.shape[:2]
@@ -147,6 +151,69 @@ def get_automatic_placement_coords(image_path, original_width, original_height, 
 
     return current_y
 
+def generate_captioned_image(base_image, settings, config, face_detector, random_tilt=False):
+    original_width, original_height = base_image.size
+    caption_text = settings.get('caption', '')
+
+    if not caption_text:
+        return base_image, None
+
+    caption_text = replace_quotes(caption_text)
+    scale_x = settings.get('scale_x', 1.0)
+    scale_y = settings.get('scale_y', 1.0)
+
+    # --- CAPTION STYLING LOGIC ---
+    avg_scale = (scale_x + scale_y) / 2
+    scaled_font_size_divisor = config['font_size_divisor'] / avg_scale
+    scaled_stroke_width = int(config['stroke_width'] * avg_scale)
+    target_caption_width = original_width * config['text_width_ratio'] * scale_x
+
+    dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
+    lines, block_height, font, font_size = draw_caption(
+        dummy_draw, caption_text, resource_path(config['font_path']), scaled_font_size_divisor,
+        config['text_width_ratio'], tuple(config['text_color']), tuple(config['stroke_color']), 
+        scaled_stroke_width, original_width, original_height, target_caption_width=target_caption_width
+    )
+    wrapped_caption = "\n".join(lines)
+    tw, th = multiline_bbox(dummy_draw, wrapped_caption, font, stroke_w=scaled_stroke_width, spacing=4)
+    th += int(font_size * 0.2) # Add 20% padding
+
+    # --- PLACEMENT LOGIC ---
+    x = settings.get('x')
+    y = settings.get('y')
+    if y is None:
+        y = get_automatic_placement_coords(base_image, original_width, original_height, block_height, face_detector)
+
+    if x is None:
+        x = (original_width - tw) / 2
+
+    # --- TILT LOGIC ---
+    angle = 0
+    if random_tilt:
+        if 'tilt_angle' not in settings or settings['tilt_angle'] == 0:
+            settings['tilt_angle'] = random.uniform(-30, 30)
+        angle = settings['tilt_angle']
+    else:
+        settings['tilt_angle'] = 0
+
+    # --- DRAWING LOGIC ---
+    text_layer = Image.new('RGBA', (tw, th), (255, 255, 255, 0))
+    text_draw = ImageDraw.Draw(text_layer)
+    text_draw.multiline_text(
+        (0, 0), wrapped_caption, font=font, fill=tuple(config['text_color']),
+        stroke_width=scaled_stroke_width, stroke_fill=tuple(config['stroke_color']),
+        spacing=4, align="center"
+    )
+
+    if angle != 0:
+        text_layer = text_layer.rotate(angle, expand=True, resample=Image.BICUBIC)
+        new_tw, new_th = text_layer.size
+        x -= (new_tw - tw) / 2
+        y -= (new_th - th) / 2
+
+    base_image.paste(text_layer, (int(x), int(y)), text_layer)
+    return base_image, (x, y, tw, th)
+
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """ 
     try:
@@ -161,10 +228,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None):
-    """
-    Processes a list of images to add a caption based on the selected placement mode.
-    """
+def process_images(image_paths, output_folder, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -173,6 +237,16 @@ def process_images(image_paths, output_folder, font_path, font_size_divisor, tex
 
     mp_face_detection = mp.solutions.face_detection
     face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+    # This config object is a bit redundant, but it helps to pass all the settings to the new function
+    config = {
+        'font_path': font_path,
+        'font_size_divisor': font_size_divisor,
+        'text_width_ratio': text_width_ratio,
+        'text_color': text_color,
+        'stroke_color': stroke_color,
+        'stroke_width': stroke_width
+    }
 
     safe_print(f"Starting to process {len(image_paths)} images...")
 
@@ -184,68 +258,15 @@ def process_images(image_paths, output_folder, font_path, font_size_divisor, tex
         if resolution:
             base_image = resize_and_crop(base_image, resolution[0], resolution[1])
 
-        draw = ImageDraw.Draw(base_image)
-        original_width, original_height = base_image.size
-
         settings = image_settings.get(image_path, {})
-        caption_text = settings.get('caption', '')
-
-        if caption_text:
-            caption_text = replace_quotes(caption_text)
-            scale_x = settings.get('scale_x', 1.0)
-            scale_y = settings.get('scale_y', 1.0)
-            
-            # --- CAPTION STYLING LOGIC ---
-            avg_scale = (scale_x + scale_y) / 2
-            scaled_font_size_divisor = font_size_divisor / avg_scale
-            scaled_stroke_width = int(stroke_width * avg_scale)
-
-            target_caption_width = original_width * text_width_ratio * scale_x
-
-            lines, block_height, font = draw_caption(
-                draw,
-                caption_text,
-                font_path,
-                scaled_font_size_divisor,
-                text_width_ratio,
-                text_color,
-                stroke_color,
-                scaled_stroke_width,
-                original_width,
-                original_height,
-                target_caption_width=target_caption_width
-            )
-
-            # --- PLACEMENT LOGIC ---
-            x = settings.get('x')
-            y = settings.get('y')
-
-            wrapped_caption = "\n".join(lines)
-            tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
-
-            if x is None:
-                x = (original_width - tw) / 2
-            if y is None:
-                y = get_automatic_placement_coords(image_path, original_width, original_height, block_height, face_detector)
-
-
-            # --- DRAWING LOGIC ---
-            draw.multiline_text(
-                (x, y),
-                wrapped_caption,
-                font=font,
-                fill=text_color,
-                stroke_width=scaled_stroke_width,
-                stroke_fill=stroke_color,
-                spacing=4,
-                align="center"
-            )
+        
+        final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt)
 
         # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
         if filename.lower().endswith(('.jpg', '.jpeg')):
-            base_image = base_image.convert("RGB")
-        base_image.save(output_path)
+            final_image = final_image.convert("RGB")
+        final_image.save(output_path)
 
         if progress_callback:
             progress_callback(i + 1, num_images)

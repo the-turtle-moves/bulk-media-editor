@@ -5,7 +5,8 @@ import os
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
-from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print, replace_quotes
+from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image
+import random
 
 class App(tk.Tk):
     def __init__(self):
@@ -73,6 +74,9 @@ class App(tk.Tk):
         self.sync_caption_var = tk.BooleanVar(value=True)
         self.sync_caption_checkbox = tk.Checkbutton(self.sync_frame, text="Use one caption for all", variable=self.sync_caption_var)
         self.sync_caption_checkbox.pack(anchor=tk.W, padx=5, pady=2)
+        self.random_tilt_var = tk.BooleanVar(value=False)
+        self.random_tilt_checkbox = tk.Checkbutton(self.sync_frame, text="Randomly tilt captions", variable=self.random_tilt_var, command=self.on_tilt_toggle)
+        self.random_tilt_checkbox.pack(anchor=tk.W, padx=5, pady=2)
         self.recenter_button = tk.Button(self.sync_frame, text="Recenter All Captions", command=self.recenter_all_captions)
         self.recenter_button.pack(fill=tk.X, padx=5, pady=(2, 5))
         self.sync_caption_var.trace_add('write', self.on_sync_caption_toggle)
@@ -239,6 +243,15 @@ class App(tk.Tk):
         if self.preview_image_path:
             self.display_image()
 
+    def on_tilt_toggle(self):
+        if self.preview_image_path:
+            # When toggling, we might need to reset angles
+            if not self.random_tilt_var.get():
+                for path in self.listbox.get(0, tk.END):
+                    if path in self.image_settings:
+                        self.image_settings[path]['tilt_angle'] = 0
+            self.display_image()
+
     def recenter_all_captions(self):
         paths = self.listbox.get(0, tk.END)
         if not paths:
@@ -338,7 +351,6 @@ class App(tk.Tk):
         self.caption_text_box.edit_modified(False)
 
     def display_image(self):
-        # This function now uses the cached self.original_image_for_preview
         if not self.original_image_for_preview:
             self.preview_label.config(image=None, text="No image selected or image failed to load.")
             return
@@ -346,63 +358,16 @@ class App(tk.Tk):
         image_path = self.preview_image_path
         try:
             image_to_display = self.original_image_for_preview.copy()
-
             settings = self.image_settings.get(image_path, {})
-            caption_text = settings.get('caption', '')
-            caption_text = replace_quotes(caption_text)
-            scale_x = settings.get('scale_x', 1.0)
-            scale_y = settings.get('scale_y', 1.0)
 
-            wrapped_caption = ""
-            font = None
-            tw, th = 0, 0
-
-            if caption_text:
-                draw = ImageDraw.Draw(image_to_display)
-                font_path = resource_path(self.config['font_path'])
-                font_size_divisor = self.config['font_size_divisor']
-                text_width_ratio = self.config['text_width_ratio']
-                text_color = tuple(self.config['text_color'])
-                stroke_color = tuple(self.config['stroke_color'])
-                base_stroke_width = self.config['stroke_width']
-
-                # Use an estimated average scale for font size and stroke to maintain visual consistency
-                avg_scale = (scale_x + scale_y) / 2
-                scaled_font_size_divisor = font_size_divisor / avg_scale
-                scaled_stroke_width = int(base_stroke_width * avg_scale)
-
-                # Calculate the target width and height for the caption based on scaling
-                target_caption_width = image_to_display.width * text_width_ratio * scale_x
-
-                lines, block_height, font = draw_caption(
-                    draw, caption_text, font_path, scaled_font_size_divisor,
-                    text_width_ratio, text_color, stroke_color, scaled_stroke_width,
-                    image_to_display.width, image_to_display.height,
-                    target_caption_width=target_caption_width
-                )
-                wrapped_caption = "\n".join(lines)
-                
-                tw, th = multiline_bbox(draw, wrapped_caption, font, stroke_w=scaled_stroke_width)
-
-                # Placement Logic
-                is_manual = settings.get('manual_placement', False)
-
-                if not is_manual:
-                    # Always recenter horizontally in auto mode
-                    settings['x'] = (image_to_display.width - tw) / 2
-                
-                # Set initial Y position if not set yet (for both modes)
-                if settings.get('y') is None:
-                    settings['y'] = get_automatic_placement_coords(image_path, image_to_display.width, image_to_display.height, block_height, self.face_detector)
-
-                self.image_settings[image_path] = settings
-                x, y = settings['x'], settings['y']
-                
-                draw.multiline_text(
-                    (x, y), wrapped_caption, font=font, fill=text_color,
-                    stroke_width=scaled_stroke_width, stroke_fill=stroke_color,
-                    spacing=4, align="center"
-                )
+            # Generate the captioned image using the centralized function
+            image_to_display, bbox = generate_captioned_image(
+                image_to_display, 
+                settings, 
+                self.config, 
+                self.face_detector, 
+                self.random_tilt_var.get()
+            )
 
             panel_width = self.preview_frame.winfo_width()
             panel_height = self.preview_frame.winfo_height()
@@ -417,9 +382,10 @@ class App(tk.Tk):
             
             resized_image = image_to_display.resize((new_w, new_h), Image.LANCZOS)
             
-            if caption_text:
-                preview_x = settings.get('x', 0) * ratio
-                preview_y = settings.get('y', 0) * ratio
+            if bbox:
+                x, y, tw, th = bbox
+                preview_x = x * ratio
+                preview_y = y * ratio
                 preview_tw = tw * ratio
                 preview_th = th * ratio
 
@@ -564,7 +530,8 @@ class App(tk.Tk):
                 stroke_width=self.config['stroke_width'],
                 resolution=resolution,
                 image_settings=self.image_settings,
-                progress_callback=self.update_progress
+                progress_callback=self.update_progress,
+                random_tilt=self.random_tilt_var.get()
             )
             messagebox.showinfo("Success", "Image processing complete!")
         except Exception as e:
