@@ -24,9 +24,10 @@ def replace_quotes(text):
             res += char
     return res
 
-def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
-    font_size = int(original_width / font_size_divisor)
-    font = ImageFont.truetype(font_path, font_size)
+def draw_caption(draw, caption_text, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
+    # Scale font size based on image width. The base font_size is for a 1080px wide image.
+    scaled_font_size = int(font_size * (original_width / 1080))
+    font = ImageFont.truetype(font_path, scaled_font_size)
     
     single_line_bbox = draw.textbbox((0, 0), caption_text, font=font)
     single_line_width = single_line_bbox[2] - single_line_bbox[0]
@@ -41,7 +42,7 @@ def draw_caption(draw, caption_text, font_path, font_size_divisor, text_width_ra
     
     block_height = len(lines) * line_height
 
-    return lines, block_height, font, font_size
+    return lines, block_height, font, scaled_font_size
 
 def resize_and_crop(image, target_width, target_height):
     """
@@ -164,19 +165,20 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
 
     # --- CAPTION STYLING LOGIC ---
     avg_scale = (scale_x + scale_y) / 2
-    scaled_font_size_divisor = config['font_size_divisor'] / avg_scale
+    # The base font_size is scaled by the user's resize operations.
+    scaled_font_size = int(config['font_size'] * avg_scale)
     scaled_stroke_width = int(config['stroke_width'] * avg_scale)
     target_caption_width = original_width * config['text_width_ratio'] * scale_x
 
     dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
-    lines, block_height, font, font_size = draw_caption(
-        dummy_draw, caption_text, resource_path(config['font_path']), scaled_font_size_divisor,
+    lines, block_height, font, final_font_size = draw_caption(
+        dummy_draw, caption_text, resource_path(config['font_path']), scaled_font_size,
         config['text_width_ratio'], tuple(config['text_color']), tuple(config['stroke_color']), 
         scaled_stroke_width, original_width, original_height, target_caption_width=target_caption_width
     )
     wrapped_caption = "\n".join(lines)
-    tw, th = multiline_bbox(dummy_draw, wrapped_caption, font, stroke_w=scaled_stroke_width, spacing=4)
-    th += int(font_size * 0.2) # Add 20% padding
+    tw, th = multiline_bbox(dummy_draw, wrapped_caption, font, stroke_w=scaled_stroke_width, spacing=14)
+    th += int(final_font_size * 0.2) # Add 20% padding
 
     # --- PLACEMENT LOGIC ---
     x = settings.get('x')
@@ -202,7 +204,7 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
     text_draw.multiline_text(
         (0, 0), wrapped_caption, font=font, fill=tuple(config['text_color']),
         stroke_width=scaled_stroke_width, stroke_fill=tuple(config['stroke_color']),
-        spacing=4, align="center"
+        spacing=14, align="center"
     )
 
     if angle != 0:
@@ -228,7 +230,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, font_path, font_size_divisor, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False):
+def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -241,7 +243,7 @@ def process_images(image_paths, output_folder, font_path, font_size_divisor, tex
     # This config object is a bit redundant, but it helps to pass all the settings to the new function
     config = {
         'font_path': font_path,
-        'font_size_divisor': font_size_divisor,
+        'font_size': font_size,
         'text_width_ratio': text_width_ratio,
         'text_color': text_color,
         'stroke_color': stroke_color,

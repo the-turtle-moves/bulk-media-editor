@@ -1,9 +1,9 @@
 {
     "output_folder": "captioned_images",
     "font_path": "Font.otf",
-    "font_size_divisor": 15,
+    "font_size": 85,
     "text_width_ratio": 0.85,
     "text_color": [255, 255, 255],
     "stroke_color": [0, 0, 0],
-    "stroke_width": 3
+    "stroke_width": 4
 }

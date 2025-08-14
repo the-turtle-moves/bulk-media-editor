@@ -523,7 +523,7 @@ class App(tk.Tk):
                 image_paths=files_to_process,
                 output_folder=output_folder,
                 font_path=resource_path(self.config['font_path']),
-                font_size_divisor=self.config['font_size_divisor'],
+                font_size=self.config['font_size'],
                 text_width_ratio=self.config['text_width_ratio'],
                 text_color=tuple(self.config['text_color']),
                 stroke_color=tuple(self.config['stroke_color']),
