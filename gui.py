@@ -5,7 +5,7 @@ import os
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
-from image_processor import process_images, resource_path, multiline_bbox, draw_caption, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image
+from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text
 import random
 
 class App(tk.Tk):
@@ -308,8 +308,22 @@ class App(tk.Tk):
         if self.preview_image_path not in self.image_settings:
             self.image_settings[self.preview_image_path] = {
                 'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
-                'manual_placement': False, 'caption': global_caption
+                'manual_placement': False, 'caption': global_caption,
+                'wrapped_caption': '' # Initialize empty
             }
+
+        # Generate wrapped caption if it's missing
+        settings = self.image_settings[self.preview_image_path]
+        if not settings.get('wrapped_caption') and settings.get('caption'):
+            img_w, _ = self.original_image_for_preview.size
+            wrapped = wrap_text(
+                settings['caption'],
+                resource_path(self.config['font_path']),
+                self.config['font_size'],
+                self.config['text_width_ratio'],
+                img_w
+            )
+            self.image_settings[self.preview_image_path]['wrapped_caption'] = wrapped
 
         # If not syncing, update the textbox to show the image's specific caption
         if not self.sync_caption_var.get():
@@ -334,15 +348,27 @@ class App(tk.Tk):
         """ Contains the logic that was previously in on_caption_change. """
         caption_text = self.caption_text_box.get("1.0", tk.END).strip()
 
+        # Determine which paths to update
+        paths_to_update = []
         if self.sync_caption_var.get():
-            # Sync to all images
-            for path in self.listbox.get(0, tk.END):
-                if path in self.image_settings:
-                    self.image_settings[path]['caption'] = caption_text
-        
-        # Always update the current image's setting
-        if self.preview_image_path and self.preview_image_path in self.image_settings:
-                self.image_settings[self.preview_image_path]['caption'] = caption_text
+            paths_to_update = self.listbox.get(0, tk.END)
+        elif self.preview_image_path:
+            paths_to_update.append(self.preview_image_path)
+
+        for path in paths_to_update:
+            if path in self.image_settings:
+                self.image_settings[path]['caption'] = caption_text
+                # Also update the wrapped caption
+                if self.original_image_for_preview and path == self.preview_image_path:
+                    img_w, _ = self.original_image_for_preview.size
+                    wrapped = wrap_text(
+                        caption_text, 
+                        resource_path(self.config['font_path']), 
+                        self.config['font_size'], 
+                        self.config['text_width_ratio'], 
+                        img_w
+                    )
+                    self.image_settings[path]['wrapped_caption'] = wrapped
 
         if self.preview_image_path:
             self.display_image()
@@ -495,14 +521,32 @@ class App(tk.Tk):
                 return
 
         try:
-            # Ensure all images have up-to-date caption info before processing
+            # Ensure all images have up-to-date caption and wrapped_caption info before processing
             current_caption = self.caption_text_box.get("1.0", tk.END).strip()
-            if self.sync_caption_var.get():
-                for path in files_to_process:
+            for path in files_to_process:
+                # This is a bit inefficient to open every image again, but ensures correctness
+                try:
+                    with Image.open(path) as img:
+                        img_w, _ = img.size
+                        wrapped = wrap_text(
+                            current_caption, 
+                            resource_path(self.config['font_path']), 
+                            self.config['font_size'], 
+                            self.config['text_width_ratio'], 
+                            img_w
+                        )
                     if path in self.image_settings:
                         self.image_settings[path]['caption'] = current_caption
+                        self.image_settings[path]['wrapped_caption'] = wrapped
                     else:
-                         self.image_settings[path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False, 'caption': current_caption}
+                        self.image_settings[path] = {
+                            'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
+                            'manual_placement': False, 'caption': current_caption, 
+                            'wrapped_caption': wrapped
+                        }
+                except Exception as e:
+                    safe_print(f"Could not process/wrap text for {path}: {e}")
+                    continue # Skip this image if it fails
 
             resolution = None
             if self.resize_enabled.get():
