@@ -510,16 +510,6 @@ class App(tk.Tk):
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
-        if os.path.exists(output_folder):
-            try:
-                shutil.rmtree(output_folder)
-                safe_print(f"Cleared existing output folder: {output_folder}")
-            except OSError as e:
-                messagebox.showerror("Error", f"Error clearing output folder: {e}")
-                self.start_button.config(state=tk.NORMAL)
-                self.progress_bar.pack_forget()
-                return
-
         try:
             # Ensure all images have up-to-date caption and wrapped_caption info before processing
             current_caption = self.caption_text_box.get("1.0", tk.END).strip()
