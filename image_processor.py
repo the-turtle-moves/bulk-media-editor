@@ -192,7 +192,7 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
     # The base font_size is scaled by the user's resize operations and the image's own width.
     scaled_font_size = int(config['font_size'] * (original_width / 1080) * avg_scale)
     font = ImageFont.truetype(resource_path(config['font_path']), scaled_font_size)
-    scaled_stroke_width = int(config['stroke_width'] * avg_scale)
+    scaled_stroke_width = int(config['stroke_width'] * (original_width / 1080) * avg_scale)
 
     dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
     
