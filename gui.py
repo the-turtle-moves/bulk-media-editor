@@ -29,8 +29,23 @@ class App(tk.Tk):
 
         self.mp_face_detection = mp.solutions.face_detection
         self.face_detector = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
-        with open(resource_path('config.json'), 'r') as f:
-            self.config = json.load(f)
+        
+        # --- Load Config ---
+        try:
+            # Look for config.json next to the executable or script
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
+            config_path = os.path.join(base_dir, 'config.json')
+            
+            with open(config_path, 'r') as f:
+                self.config = json.load(f)
+        except FileNotFoundError:
+            messagebox.showerror("Config Error", "config.json not found! Please make sure it's in the same directory as the application.")
+            self.destroy()
+            return
+        except Exception as e:
+            messagebox.showerror("Config Error", f"Failed to load or parse config.json: {e}")
+            self.destroy()
+            return
 
         # --- UI Elements ---
         self.main_frame = tk.Frame(self)

@@ -15,7 +15,10 @@ for /f "delims=" %%i in ('python -c "import mediapipe; import os; print(os.path.
     set "mediapipe_path=%%i"
 )
 
-pyinstaller --onefile --windowed --add-data "config.json;." --add-data "Font.otf;." --add-data "%mediapipe_path%;mediapipe" --upx-dir . gui.py
+pyinstaller --onefile --windowed --add-data "Font.otf;." --add-data "%mediapipe_path%;mediapipe" --upx-dir . gui.py
+
+REM Copy the config file to the dist folder so the user can edit it.
+COPY config.json dist\config.json
 
 REM --- Calculate and Display Runtime ---
 set end_time=%TIME%
