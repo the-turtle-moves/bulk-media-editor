@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import json
 import os
+import sys
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
@@ -92,6 +93,9 @@ class App(tk.Tk):
         self.random_tilt_var = tk.BooleanVar(value=False)
         self.random_tilt_checkbox = tk.Checkbutton(self.sync_frame, text="Randomly tilt captions", variable=self.random_tilt_var, command=self.on_tilt_toggle)
         self.random_tilt_checkbox.pack(anchor=tk.W, padx=5, pady=2)
+        self.font_outline_var = tk.BooleanVar(value=True)
+        self.font_outline_checkbox = tk.Checkbutton(self.sync_frame, text="Enable font outline", variable=self.font_outline_var, command=self.display_image)
+        self.font_outline_checkbox.pack(anchor=tk.W, padx=5, pady=2)
         self.recenter_button = tk.Button(self.sync_frame, text="Recenter All Captions", command=self.recenter_all_captions)
         self.recenter_button.pack(fill=tk.X, padx=5, pady=(2, 5))
         self.sync_caption_var.trace_add('write', self.on_sync_caption_toggle)
@@ -407,7 +411,8 @@ class App(tk.Tk):
                 settings, 
                 self.config, 
                 self.face_detector, 
-                self.random_tilt_var.get()
+                self.random_tilt_var.get(),
+                self.font_outline_var.get()
             )
 
             panel_width = self.preview_frame.winfo_width()
@@ -580,7 +585,8 @@ class App(tk.Tk):
                 resolution=resolution,
                 image_settings=self.image_settings,
                 progress_callback=self.update_progress,
-                random_tilt=self.random_tilt_var.get()
+                random_tilt=self.random_tilt_var.get(),
+                font_outline=self.font_outline_var.get()
             )
             messagebox.showinfo("Success", "Image processing complete!")
         except Exception as e:

@@ -173,7 +173,7 @@ def get_automatic_placement_coords(image_input, original_width, original_height,
 
     return current_y
 
-def generate_captioned_image(base_image, settings, config, face_detector, random_tilt=False):
+def generate_captioned_image(base_image, settings, config, face_detector, random_tilt=False, font_outline=True):
     original_width, original_height = base_image.size
     caption_text = settings.get('caption', '')
     wrapped_caption = settings.get('wrapped_caption', '')
@@ -193,6 +193,8 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
     scaled_font_size = int(config['font_size'] * (original_width / 1080) * avg_scale)
     font = ImageFont.truetype(resource_path(config['font_path']), scaled_font_size)
     scaled_stroke_width = int(config['stroke_width'] * (original_width / 1080) * avg_scale)
+    if not font_outline:
+        scaled_stroke_width = 0
 
     dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
     
@@ -255,7 +257,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False):
+def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -287,7 +289,7 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
 
         settings = image_settings.get(image_path, {})
         
-        final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt)
+        final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt, font_outline)
 
         # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
