@@ -127,6 +127,15 @@ class App(tk.Tk):
         self.browse_button = tk.Button(self.output_folder_frame, text="...", command=self.select_output_folder)
         self.browse_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
+        # Filename Options
+        self.filename_frame = tk.LabelFrame(self.control_frame, text="Filename Options")
+        self.filename_frame.pack(pady=10, fill=tk.X)
+        self.filename_option = tk.StringVar(value="random") # Default to random
+        self.random_name_radio = tk.Radiobutton(self.filename_frame, text="Random Names (default)", variable=self.filename_option, value="random")
+        self.random_name_radio.pack(anchor=tk.W, padx=5)
+        self.sequential_name_radio = tk.Radiobutton(self.filename_frame, text="Sequential (image_000001)", variable=self.filename_option, value="sequential")
+        self.sequential_name_radio.pack(anchor=tk.W, padx=5)
+
         # Resolution Settings
         self.resolution_frame = tk.LabelFrame(self.control_frame, text="Resize Options")
         self.resolution_frame.pack(pady=10, fill=tk.X)
@@ -628,7 +637,8 @@ class App(tk.Tk):
                 image_settings=self.image_settings,
                 progress_callback=self.update_progress,
                 random_tilt=self.random_tilt_var.get(),
-                font_outline=self.font_outline_var.get()
+                font_outline=self.font_outline_var.get(),
+                filename_option=self.filename_option.get()
             )
             messagebox.showinfo("Success", "Image processing complete!")
         except Exception as e:

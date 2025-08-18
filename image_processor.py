@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 import textwrap
@@ -257,7 +258,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True):
+def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random"):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -277,11 +278,29 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
         'stroke_width': stroke_width
     }
 
+    if filename_option == "random":
+        used_random_names = set()
+
     safe_print(f"Starting to process {len(image_paths)} images...")
 
     num_images = len(image_paths)
     for i, image_path in enumerate(image_paths):
-        filename = os.path.basename(image_path)
+        original_filename = os.path.basename(image_path)
+        file_extension = os.path.splitext(original_filename)[1]
+
+        if filename_option == "sequential":
+            new_filename_base = f"image_{i+1:06d}"
+            filename = f"{new_filename_base}{file_extension}"
+        elif filename_option == "random":
+            while True:
+                random_name = uuid.uuid4().hex[:8]
+                if random_name not in used_random_names:
+                    used_random_names.add(random_name)
+                    filename = f"{random_name}{file_extension}"
+                    break
+        else: # Default to original filename if option is unknown
+            filename = original_filename
+
         base_image = Image.open(image_path).convert("RGBA")
 
         if resolution:
