@@ -16,6 +16,7 @@ class App(tk.Tk):
         self.geometry("1000x700")
 
         # --- Data ---
+        self.image_list = [] # The single source of truth for image paths
         self.current_preview_image = None
         self.original_image_for_preview = None
         self.preview_image_path = None
@@ -65,6 +66,16 @@ class App(tk.Tk):
         self.listbox = tk.Listbox(self.list_frame, selectmode=tk.EXTENDED)
         self.listbox.pack(fill=tk.BOTH, expand=True)
         self.listbox.bind('<<ListboxSelect>>', self.on_file_select)
+
+        # Info Labels
+        self.info_frame = tk.Frame(self.list_frame)
+        self.info_frame.pack(fill=tk.X, pady=5)
+        self.total_images_var = tk.StringVar(value="Total: 0")
+        self.total_images_label = tk.Label(self.info_frame, textvariable=self.total_images_var, anchor=tk.W)
+        self.total_images_label.pack(fill=tk.X, padx=5)
+        self.selected_images_var = tk.StringVar(value="Selected: 0")
+        self.selected_images_label = tk.Label(self.info_frame, textvariable=self.selected_images_var, anchor=tk.W)
+        self.selected_images_label.pack(fill=tk.X, padx=5)
 
         # Center Panel (Image Preview)
         self.preview_frame = tk.Frame(self.main_frame, bg='gray80')
@@ -183,7 +194,7 @@ class App(tk.Tk):
             new_scale_y = max(0.1, self.resize_info['start_scale_y'] * scale_factor_y)
 
             if self.apply_to_all_var.get():
-                for path in self.listbox.get(0, tk.END):
+                for path in self.image_list:
                     if path not in self.image_settings:
                         self.image_settings[path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False, 'caption': ''}
                     self.image_settings[path]['scale_x'] = new_scale_x
@@ -213,7 +224,7 @@ class App(tk.Tk):
             new_y = (new_preview_y - offset_y) / ratio
 
             if self.apply_to_all_var.get():
-                for path in self.listbox.get(0, tk.END):
+                for path in self.image_list:
                     if path not in self.image_settings:
                         self.image_settings[path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False, 'caption': ''}
                     self.image_settings[path]['x'] = new_x
@@ -230,6 +241,27 @@ class App(tk.Tk):
         self.drag_info['is_dragging'] = False
         self.resize_info['is_resizing'] = False
 
+    def _update_listbox(self):
+        current_selection_indices = self.listbox.curselection()
+        
+        self.listbox.delete(0, tk.END)
+        for i, path in enumerate(self.image_list):
+            display_text = f"{i+1}. {os.path.basename(path)}"
+            self.listbox.insert(tk.END, display_text)
+
+        # Restore selection
+        for i in current_selection_indices:
+            if i < self.listbox.size():
+                self.listbox.select_set(i)
+        
+        self._update_counts()
+
+    def _update_counts(self):
+        total_count = len(self.image_list)
+        selected_count = len(self.listbox.curselection())
+        self.total_images_var.set(f"Total: {total_count}")
+        self.selected_images_var.set(f"Selected: {selected_count}")
+
     def update_progress(self, current, total):
         self.progress_bar['value'] = (current / total) * 100
         self.update_idletasks()
@@ -240,7 +272,7 @@ class App(tk.Tk):
 
         if not is_synced:
             # When switching from SYNCED to UNSYNCED, copy the current "global" caption to all individual images
-            for path in self.listbox.get(0, tk.END):
+            for path in self.image_list:
                 if path in self.image_settings:
                     self.image_settings[path]['caption'] = current_caption
         else:
@@ -255,7 +287,7 @@ class App(tk.Tk):
                 self.updating_caption_box = False
                 
                 # And apply this new global caption to all images
-                for path in self.listbox.get(0, tk.END):
+                for path in self.image_list:
                     if path in self.image_settings:
                         self.image_settings[path]['caption'] = new_global_caption
         
@@ -266,18 +298,17 @@ class App(tk.Tk):
         if self.preview_image_path:
             # When toggling, we might need to reset angles
             if not self.random_tilt_var.get():
-                for path in self.listbox.get(0, tk.END):
+                for path in self.image_list:
                     if path in self.image_settings:
                         self.image_settings[path]['tilt_angle'] = 0
             self.display_image()
 
     def recenter_all_captions(self):
-        paths = self.listbox.get(0, tk.END)
-        if not paths:
+        if not self.image_list:
             messagebox.showwarning("No Images", "There are no images to recenter.")
             return
 
-        for path in paths:
+        for path in self.image_list:
             if path in self.image_settings:
                 self.image_settings[path]['manual_placement'] = False
                 self.image_settings[path]['x'] = None
@@ -294,6 +325,7 @@ class App(tk.Tk):
             self.output_folder_path.set(folder_selected)
 
     def on_file_select(self, event=None):
+        self._update_counts()
         selection = self.listbox.curselection()
         if not selection:
             self.preview_image_path = None
@@ -303,7 +335,7 @@ class App(tk.Tk):
             return
         
         selected_index = selection[0]
-        path = self.listbox.get(selected_index)
+        path = self.image_list[selected_index]
 
         # Prevent reloading if the same image is clicked again
         if path == self.preview_image_path:
@@ -370,7 +402,7 @@ class App(tk.Tk):
         # Determine which paths to update
         paths_to_update = []
         if self.sync_caption_var.get():
-            paths_to_update = self.listbox.get(0, tk.END)
+            paths_to_update = self.image_list
         elif self.preview_image_path:
             paths_to_update.append(self.preview_image_path)
 
@@ -473,18 +505,24 @@ class App(tk.Tk):
         if not files: return
 
         caption_text = self.caption_text_box.get("1.0", tk.END).strip()
+        added_new = False
         for f in files:
-            if f not in self.listbox.get(0, tk.END):
-                self.listbox.insert(tk.END, f)
+            if f not in self.image_list:
+                self.image_list.append(f)
+                added_new = True
                 if f not in self.image_settings:
                     self.image_settings[f] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False, 'caption': caption_text}
         
+        if added_new:
+            self._update_listbox()
+
         if self.listbox.size() > 0 and not self.listbox.curselection():
             self.listbox.select_set(0)
             self.on_file_select()
 
     def select_all_images(self):
         self.listbox.select_set(0, tk.END)
+        self._update_counts()
         # Trigger on_file_select to update preview if necessary
         if self.listbox.size() > 0:
             self.on_file_select()
@@ -494,12 +532,16 @@ class App(tk.Tk):
         if not selected_indices:
             return
 
-        # Sort indices in descending order to avoid issues when deleting items
-        for index in sorted(selected_indices, reverse=True):
-            path_to_remove = self.listbox.get(index)
-            self.listbox.delete(index)
-            if path_to_remove in self.image_settings:
-                del self.image_settings[path_to_remove]
+        # Get paths to remove before modifying the list
+        paths_to_remove = [self.image_list[i] for i in selected_indices]
+
+        for path in paths_to_remove:
+            if path in self.image_list:
+                self.image_list.remove(path)
+            if path in self.image_settings:
+                del self.image_settings[path]
+
+        self._update_listbox()
 
         # After deletion, update the preview. If no items left, clear preview.
         if self.listbox.size() == 0:
@@ -515,7 +557,7 @@ class App(tk.Tk):
             self.on_file_select()
 
     def start_processing(self):
-        files_to_process = self.listbox.get(0, tk.END)
+        files_to_process = self.image_list
         if not files_to_process:
             messagebox.showwarning("No Files", "Please add images to the list first.")
             return
