@@ -57,8 +57,8 @@ class App(tk.Tk):
         self.list_frame = tk.Frame(self.main_frame, width=200)
         self.list_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         self.list_frame.pack_propagate(False)
-        self.add_button = tk.Button(self.list_frame, text="Add Images", command=self.add_images)
-        self.add_button.pack(pady=5, fill=tk.X)
+        self.add_media_button = tk.Button(self.list_frame, text="Add Media", command=self.add_media)
+        self.add_media_button.pack(pady=5, fill=tk.X)
         self.remove_button = tk.Button(self.list_frame, text="Remove Selected", command=self.remove_selected)
         self.remove_button.pack(pady=5, fill=tk.X)
         self.select_all_button = tk.Button(self.list_frame, text="Select All", command=self.select_all_images)
@@ -178,8 +178,14 @@ class App(tk.Tk):
         self.height_entry = tk.Entry(self.resolution_entry_frame, textvariable=self.height_var, width=7)
         self.height_entry.pack(side=tk.LEFT)
 
-        self.start_button = tk.Button(self.control_frame, text="Start Processing", command=self.start_processing)
-        self.start_button.pack(pady=20, fill=tk.X)
+        self.processing_buttons_frame = tk.Frame(self.control_frame)
+        self.processing_buttons_frame.pack(pady=20, fill=tk.X)
+
+        self.start_button = tk.Button(self.processing_buttons_frame, text="Process Images", command=self.start_processing)
+        self.start_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
+
+        self.process_video_button = tk.Button(self.processing_buttons_frame, text="Process Video", command=self.start_video_processing)
+        self.process_video_button.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
 
         self.progress_bar = ttk.Progressbar(self.control_frame, orient='horizontal', mode='determinate')
 
@@ -397,7 +403,14 @@ class App(tk.Tk):
         
         # Optimization: Load the image once on selection and cache it.
         try:
-            self.original_image_for_preview = Image.open(self.preview_image_path).convert("RGBA")
+            file_extension = os.path.splitext(path)[1].lower()
+            if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
+                self.original_image_for_preview = Image.open(self.preview_image_path).convert("RGBA")
+            else:
+                self.original_image_for_preview = None
+                self.current_preview_image = None
+                self.preview_label.config(image=None, text=f"Video preview not yet supported for\n{os.path.basename(self.preview_image_path)}")
+                return
         except Exception as e:
             self.original_image_for_preview = None
             self.current_preview_image = None
@@ -549,10 +562,10 @@ class App(tk.Tk):
             self.preview_label.config(image=None, text=f'''Cannot preview {os.path.basename(image_path)}''')
             safe_print(f"Error displaying image: {e}")
 
-    def add_images(self):
+    def add_media(self):
         files = filedialog.askopenfilenames(
-            title="Select Images",
-            filetypes=(("Image Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.webp"), ("All files", "*.*" ))
+            title="Select Images or Videos",
+            filetypes=(("Media Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.webp *.mp4 *.mov *.avi"), ("All files", "*.*" ))
         )
         if not files: return
 
@@ -690,6 +703,56 @@ class App(tk.Tk):
             traceback.print_exc()
         finally:
             self.start_button.config(state=tk.NORMAL)
+            self.progress_bar.pack_forget()
+
+    def start_video_processing(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No File Selected", "Please select a video file to process.")
+            return
+
+        selected_index = selection[0]
+        path = self.image_list[selected_index]
+
+        file_extension = os.path.splitext(path)[1].lower()
+        if file_extension not in ['.mp4', '.mov', '.avi']:
+            messagebox.showwarning("Invalid File Type", "Please select a video file to process.")
+            return
+
+        output_folder = self.output_folder_path.get()
+        if not output_folder:
+            messagebox.showwarning("No Output Folder", "Please select an output folder.")
+            return
+
+        self.process_video_button.config(state=tk.DISABLED)
+        self.progress_bar.pack(fill=tk.X, padx=5, pady=5)
+        self.progress_bar['value'] = 0
+        self.update_idletasks()
+
+        try:
+            from image_processor import process_video
+            process_video(
+                video_path=path,
+                output_folder=output_folder,
+                font_path=resource_path(self.config['font_path']),
+                font_size=self.config['font_size'],
+                text_width_ratio=self.config['text_width_ratio'],
+                text_color=tuple(self.config['text_color']),
+                stroke_color=tuple(self.config['stroke_color']),
+                stroke_width=self.config['stroke_width'],
+                image_settings=self.image_settings,
+                progress_callback=self.update_progress,
+                random_tilt=self.random_tilt_var.get(),
+                font_outline=self.font_outline_var.get(),
+                filename_option=self.filename_option.get()
+            )
+            messagebox.showinfo("Success", "Video processing complete!")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.process_video_button.config(state=tk.NORMAL)
             self.progress_bar.pack_forget()
 
 if __name__ == "__main__":

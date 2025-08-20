@@ -8,6 +8,8 @@ import cv2
 import mediapipe as mp
 import numpy as np
 import random
+from moviepy.video.io.VideoFileClip import VideoFileClip
+from moviepy.audio.io.AudioFileClip import AudioFileClip
 
 def replace_quotes(text):
     text = str(text)
@@ -326,3 +328,107 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
             progress_callback(i + 1, num_images)
 
     safe_print(f"✅ Success! All images have been captioned and saved in the \"{output_folder}\" folder.")
+
+def process_video(video_path, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random"):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    if image_settings is None:
+        image_settings = {}
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        safe_print(f"Error: Could not open video file {video_path}")
+        return
+
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+    # Analyze a few frames to find the best caption position
+    y_coords = []
+    if frame_count > 0:
+        for i in range(min(10, frame_count)):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * (frame_count / 10)))
+            ret, frame = cap.read()
+            if ret:
+                pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).convert("RGBA")
+                # We need to calculate the block height first
+                dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
+                initial_font_size = int(font_size * (width / 1080))
+                initial_font = ImageFont.truetype(resource_path(font_path), initial_font_size)
+                settings = image_settings.get(video_path, {})
+                caption_text = settings.get('caption', '')
+                wrapped_caption = wrap_text(caption_text, font_path, font_size, text_width_ratio, width)
+                final_caption_text = replace_quotes(wrapped_caption if wrapped_caption else caption_text)
+                _, initial_th = multiline_bbox(dummy_draw, final_caption_text, font=initial_font, spacing=12)
+
+                y_coords.append(get_automatic_placement_coords(pil_image, width, height, initial_th, face_detector))
+
+    if y_coords:
+        caption_y = int(np.mean(y_coords))
+    else:
+        caption_y = height // 2
+
+    cap.set(cv2.CAP_PROP_POS_FRAMES, 0) # Reset frame position to the beginning
+
+    if filename_option == "random":
+        new_filename_base = uuid.uuid4().hex[:8]
+    else:
+        original_filename = os.path.basename(video_path)
+        new_filename_base = os.path.splitext(original_filename)[0]
+
+    output_filename = f"{new_filename_base}.mp4"
+    output_path = os.path.join(output_folder, output_filename)
+
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+    mp_face_detection = mp.solutions.face_detection
+    face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
+
+    config = {
+        'font_path': font_path,
+        'font_size': font_size,
+        'text_width_ratio': text_width_ratio,
+        'text_color': text_color,
+        'stroke_color': stroke_color,
+        'stroke_width': stroke_width
+    }
+
+    settings = image_settings.get(video_path, {})
+    settings['y'] = caption_y
+
+    for i in tqdm(range(frame_count)):
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).convert("RGBA")
+
+        final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline)
+
+        final_frame = cv2.cvtColor(np.array(final_image.convert("RGB")), cv2.COLOR_RGB2BGR)
+
+        out.write(final_frame)
+
+        if progress_callback:
+            progress_callback(i + 1, frame_count)
+
+    cap.release()
+    out.release()
+
+    # Add audio to the new video
+    try:
+        video_clip = VideoFileClip(output_path)
+        original_audio = VideoFileClip(video_path).audio
+        if original_audio:
+            final_clip = video_clip.set_audio(original_audio)
+            final_clip.write_videofile(output_path.replace('.mp4', '_with_audio.mp4'), codec='libx264', audio_codec='aac')
+            os.remove(output_path)
+            os.rename(output_path.replace('.mp4', '_with_audio.mp4'), output_path)
+    except Exception as e:
+        safe_print(f"Could not add audio to video: {e}")
+
+    safe_print(f"✅ Success! Video {output_filename} has been captioned and saved in the \"{output_folder}\" folder.")

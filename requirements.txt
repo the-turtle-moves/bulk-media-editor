@@ -3,3 +3,4 @@ tqdm
 opencv-python
 mediapipe
 numpy
+moviepy
