@@ -94,7 +94,7 @@ class App(tk.Tk):
 
         # Sync Adjustments
         self.sync_frame = tk.LabelFrame(self.control_frame, text="Sync Adjustments")
-        self.sync_frame.pack(pady=10, fill=tk.X)
+        self.sync_frame.pack(pady=2, fill=tk.X)
         self.apply_to_all_var = tk.BooleanVar(value=True)
         self.apply_to_all_checkbox = tk.Checkbutton(self.sync_frame, text="Apply position/scale to all", variable=self.apply_to_all_var)
         self.apply_to_all_checkbox.pack(anchor=tk.W, padx=5, pady=2)
@@ -113,7 +113,7 @@ class App(tk.Tk):
 
         # Outline Settings
         self.outline_frame = tk.LabelFrame(self.control_frame, text="Outline Settings")
-        self.outline_frame.pack(pady=10, fill=tk.X)
+        self.outline_frame.pack(pady=2, fill=tk.X)
         
         self.stroke_width_var = tk.IntVar(value=self.config.get('stroke_width', 4))
         
@@ -136,14 +136,14 @@ class App(tk.Tk):
 
         # Caption Input
         self.caption_frame = tk.LabelFrame(self.control_frame, text="Caption Text")
-        self.caption_frame.pack(pady=10, fill=tk.X)
+        self.caption_frame.pack(pady=2, fill=tk.X)
         self.caption_text_box = tk.Text(self.caption_frame, height=4)
         self.caption_text_box.pack(pady=5, padx=5, fill=tk.X)
         self.caption_text_box.bind('<<Modified>>', self.on_caption_change)
 
         # Output Folder
         self.output_folder_frame = tk.LabelFrame(self.control_frame, text="Output Folder")
-        self.output_folder_frame.pack(pady=10, fill=tk.X)
+        self.output_folder_frame.pack(pady=2, fill=tk.X)
         self.output_folder_path = tk.StringVar(value=self.config.get('output_folder', 'captioned_images'))
         self.output_folder_entry = tk.Entry(self.output_folder_frame, textvariable=self.output_folder_path)
         self.output_folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5, pady=5)
@@ -152,7 +152,7 @@ class App(tk.Tk):
 
         # Filename Options
         self.filename_frame = tk.LabelFrame(self.control_frame, text="Filename Options")
-        self.filename_frame.pack(pady=10, fill=tk.X)
+        self.filename_frame.pack(pady=2, fill=tk.X)
         self.filename_option = tk.StringVar(value="random") # Default to random
         self.random_name_radio = tk.Radiobutton(self.filename_frame, text="Random Names (default)", variable=self.filename_option, value="random")
         self.random_name_radio.pack(anchor=tk.W, padx=5)
@@ -161,7 +161,7 @@ class App(tk.Tk):
 
         # Resolution Settings
         self.resolution_frame = tk.LabelFrame(self.control_frame, text="Resize Options")
-        self.resolution_frame.pack(pady=10, fill=tk.X)
+        self.resolution_frame.pack(pady=2, fill=tk.X)
         self.resize_enabled = tk.BooleanVar(value=False)
         self.resize_checkbox = tk.Checkbutton(self.resolution_frame, text="Resize images to custom resolution", variable=self.resize_enabled)
         self.resize_checkbox.pack(anchor=tk.W)
@@ -179,7 +179,7 @@ class App(tk.Tk):
         self.height_entry.pack(side=tk.LEFT)
 
         self.processing_buttons_frame = tk.Frame(self.control_frame)
-        self.processing_buttons_frame.pack(pady=20, fill=tk.X)
+        self.processing_buttons_frame.pack(pady=2, fill=tk.X)
 
         self.start_button = tk.Button(self.processing_buttons_frame, text="Process Images", command=self.start_processing)
         self.start_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
@@ -409,7 +409,9 @@ class App(tk.Tk):
             else:
                 self.original_image_for_preview = None
                 self.current_preview_image = None
+                self.current_preview_image = None
                 self.preview_label.config(image=None, text=f"Video preview not yet supported for\n{os.path.basename(self.preview_image_path)}")
+                return
                 return
         except Exception as e:
             self.original_image_for_preview = None
@@ -744,7 +746,8 @@ class App(tk.Tk):
                 progress_callback=self.update_progress,
                 random_tilt=self.random_tilt_var.get(),
                 font_outline=self.font_outline_var.get(),
-                filename_option=self.filename_option.get()
+                filename_option=self.filename_option.get(),
+                face_detector=self.face_detector
             )
             messagebox.showinfo("Success", "Video processing complete!")
         except Exception as e:

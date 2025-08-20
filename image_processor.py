@@ -327,9 +327,9 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
         if progress_callback:
             progress_callback(i + 1, num_images)
 
-    safe_print(f"✅ Success! All images have been captioned and saved in the \"{output_folder}\" folder.")
+    safe_print('Success! All images have been captioned and saved in the "{}" folder.'.format(output_folder))
 
-def process_video(video_path, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random"):
+def process_video(video_path, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random", face_detector=None):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -385,9 +385,6 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
-    mp_face_detection = mp.solutions.face_detection
-    face_detector = mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
-
     config = {
         'font_path': font_path,
         'font_size': font_size,
@@ -431,4 +428,4 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
     except Exception as e:
         safe_print(f"Could not add audio to video: {e}")
 
-    safe_print(f"✅ Success! Video {output_filename} has been captioned and saved in the \"{output_folder}\" folder.")
+    safe_print('Success! Video {} has been captioned and saved in the "{}" folder.'.format(output_filename, output_folder))
