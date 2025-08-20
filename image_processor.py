@@ -227,12 +227,18 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
         settings['tilt_angle'] = 0
 
     # --- DRAWING LOGIC ---
-    text_layer = Image.new('RGBA', (tw, th), (255, 255, 255, 0))
+    padding = scaled_stroke_width * 2
+    text_layer = Image.new('RGBA', (tw + padding, th + padding), (255, 255, 255, 0))
     text_draw = ImageDraw.Draw(text_layer)
     text_draw.multiline_text(
-        (0, 0), final_caption_text, font=font, fill=tuple(config['text_color']),
-        stroke_width=scaled_stroke_width, stroke_fill=tuple(config['stroke_color']),
-        spacing=12, align="center"
+        (scaled_stroke_width, scaled_stroke_width), 
+        final_caption_text, 
+        font=font, 
+        fill=tuple(config['text_color']),
+        stroke_width=scaled_stroke_width, 
+        stroke_fill=tuple(config['stroke_color']),
+        spacing=12, 
+        align="center"
     )
 
     if angle != 0:
@@ -241,7 +247,7 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
         x -= (new_tw - tw) / 2
         y -= (new_th - th) / 2
 
-    base_image.paste(text_layer, (int(x), int(y)), text_layer)
+    base_image.paste(text_layer, (int(x - scaled_stroke_width), int(y - scaled_stroke_width)), text_layer)
     return base_image, (x, y, tw, th)
 
 def resource_path(relative_path):

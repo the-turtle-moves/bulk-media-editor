@@ -111,6 +111,29 @@ class App(tk.Tk):
         self.recenter_button.pack(fill=tk.X, padx=5, pady=(2, 5))
         self.sync_caption_var.trace_add('write', self.on_sync_caption_toggle)
 
+        # Outline Settings
+        self.outline_frame = tk.LabelFrame(self.control_frame, text="Outline Settings")
+        self.outline_frame.pack(pady=10, fill=tk.X)
+        
+        self.stroke_width_var = tk.IntVar(value=self.config.get('stroke_width', 4))
+        
+        self.outline_thickness_label = tk.Label(self.outline_frame, text="Thickness:")
+        self.outline_thickness_label.pack(side=tk.LEFT, padx=5, pady=5)
+        
+        self.outline_thickness_spinbox = tk.Spinbox(
+            self.outline_frame, 
+            from_=0, 
+            to=100, 
+            textvariable=self.stroke_width_var, 
+            width=5
+        )
+        self.outline_thickness_spinbox.pack(side=tk.LEFT, padx=5, pady=5)
+        self.stroke_width_var.trace_add('write', self.on_stroke_width_change)
+
+        self.save_settings_button = tk.Button(self.outline_frame, text="Save", command=self.save_config)
+        self.save_settings_button.pack(side=tk.RIGHT, padx=5, pady=5)
+
+
         # Caption Input
         self.caption_frame = tk.LabelFrame(self.control_frame, text="Caption Text")
         self.caption_frame.pack(pady=10, fill=tk.X)
@@ -311,6 +334,26 @@ class App(tk.Tk):
                     if path in self.image_settings:
                         self.image_settings[path]['tilt_angle'] = 0
             self.display_image()
+
+    def on_stroke_width_change(self, *args):
+        try:
+            new_width = self.stroke_width_var.get()
+            self.config['stroke_width'] = new_width
+            if self.preview_image_path:
+                self.display_image()
+        except (tk.TclError, ValueError):
+            # This can happen if the spinbox is empty temporarily
+            pass
+
+    def save_config(self):
+        try:
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(__file__)
+            config_path = os.path.join(base_dir, 'config.json')
+            with open(config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            messagebox.showinfo("Settings Saved", "The configuration has been saved.")
+        except Exception as e:
+            messagebox.showerror("Save Error", f"Failed to save config.json: {e}")
 
     def recenter_all_captions(self):
         if not self.image_list:
