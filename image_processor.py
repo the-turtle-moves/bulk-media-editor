@@ -427,15 +427,35 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
     out.release()
 
     # Add audio to the new video
+    video_clip = None
+    original_clip = None
+    final_clip = None
     try:
         video_clip = VideoFileClip(output_path)
-        original_audio = VideoFileClip(video_path).audio
-        if original_audio:
-            final_clip = video_clip.set_audio(original_audio)
-            final_clip.write_videofile(output_path.replace('.mp4', '_with_audio.mp4'), codec='libx264', audio_codec='aac')
+        original_clip = VideoFileClip(video_path)
+
+        if original_clip.audio:
+            final_clip = video_clip.set_audio(original_clip.audio)
+            temp_output_path = output_path.replace('.mp4', '_with_audio.mp4')
+            final_clip.write_videofile(temp_output_path, codec='libx264', audio_codec='aac')
+            
+            # Close clips before file operations to release handles
+            final_clip.close(); final_clip = None
+            video_clip.close(); video_clip = None
+            original_clip.close(); original_clip = None
+
             os.remove(output_path)
-            os.rename(output_path.replace('.mp4', '_with_audio.mp4'), output_path)
+            os.rename(temp_output_path, output_path)
+
     except Exception as e:
         safe_print(f"Could not add audio to video: {e}")
+    finally:
+        # Ensure all clips are closed to prevent resource leaks
+        if final_clip:
+            final_clip.close()
+        if video_clip:
+            video_clip.close()
+        if original_clip:
+            original_clip.close()
 
     safe_print('Success! Video {} has been captioned and saved in the "{}" folder.'.format(output_filename, output_folder))
