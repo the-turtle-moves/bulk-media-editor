@@ -5,8 +5,16 @@ REM Record start time and create a default file if needed
 set start_time=%TIME%
 
 IF EXIST "C:\Users\Lenovo\Documents\GitHub\image_maker\dist\gui.exe" (
+    ECHO Attempting to delete gui.exe...
     DEL /F /Q "C:\Users\Lenovo\Documents\GitHub\image_maker\dist\gui.exe"
-    ECHO gui.exe has been deleted successfully.
+    IF EXIST "C:\Users\Lenovo\Documents\GitHub\image_maker\dist\gui.exe" (
+        ECHO ERROR: gui.exe could not be deleted. It might be in use or you lack permissions.
+        ECHO Please ensure gui.exe is not running and try again.
+        PAUSE
+        EXIT /B 1
+    ) ELSE (
+        ECHO gui.exe has been deleted successfully.
+    )
 )
 
 echo Starting build process...

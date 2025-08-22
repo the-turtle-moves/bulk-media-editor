@@ -189,6 +189,23 @@ class App(tk.Tk):
 
         self.progress_bar = ttk.Progressbar(self.control_frame, orient='horizontal', mode='determinate')
 
+    def show_error_popup(self, traceback_str):
+        popup = tk.Toplevel(self)
+        popup.title("Detailed Error Report")
+        popup.geometry("700x500")
+        text_area = tk.Text(popup, wrap=tk.WORD, font=("Courier New", 10))
+        text_area.insert(tk.END, traceback_str)
+        text_area.config(state=tk.DISABLED)
+        
+        scrollbar = tk.Scrollbar(text_area, command=text_area.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        text_area.config(yscrollcommand=scrollbar.set)
+        
+        text_area.pack(expand=True, fill=tk.BOTH, padx=10, pady=10)
+        
+        close_button = tk.Button(popup, text="Close", command=popup.destroy)
+        close_button.pack(pady=10)
+
     def on_mouse_press(self, event):
         if not self.preview_image_path: return
 
@@ -702,7 +719,10 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             import traceback
-            traceback.print_exc()
+            import io
+            s = io.StringIO()
+            traceback.print_exc(file=s)
+            self.show_error_popup(s.getvalue())
         finally:
             self.start_button.config(state=tk.NORMAL)
             self.progress_bar.pack_forget()
@@ -753,7 +773,10 @@ class App(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             import traceback
-            traceback.print_exc()
+            import io
+            s = io.StringIO()
+            traceback.print_exc(file=s)
+            self.show_error_popup(s.getvalue())
         finally:
             self.process_video_button.config(state=tk.NORMAL)
             self.progress_bar.pack_forget()

@@ -2,7 +2,6 @@ import os
 import sys
 import uuid
 from PIL import Image, ImageDraw, ImageFont
-from tqdm import tqdm
 import textwrap
 import cv2
 import mediapipe as mp
@@ -348,9 +347,16 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
 
     # Analyze a few frames to find the best caption position
     y_coords = []
-    if frame_count > 0:
-        for i in range(min(10, frame_count)):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(i * (frame_count / 10)))
+    if frame_count > 0 and fps > 0:
+        # Sample about once per second, but no more than 10 samples total for performance.
+        num_seconds = frame_count / fps
+        num_samples = min(10, int(num_seconds))
+        if num_samples == 0:
+            num_samples = 1 # Ensure at least one sample for very short videos
+
+        for i in range(num_samples):
+            frame_index = int((frame_count / num_samples) * i)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, frame_index)
             ret, frame = cap.read()
             if ret:
                 pil_image = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)).convert("RGBA")
@@ -397,7 +403,7 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
     settings = image_settings.get(video_path, {})
     settings['y'] = caption_y
 
-    for i in tqdm(range(frame_count)):
+    for i in range(frame_count):
         ret, frame = cap.read()
         if not ret:
             break
