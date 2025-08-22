@@ -401,6 +401,10 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
     }
 
     settings = image_settings.get(video_path, {})
+    # Ensure caption is wrapped and stored in settings before processing frames
+    caption_text = settings.get('caption', '')
+    wrapped_caption = wrap_text(caption_text, font_path, font_size, text_width_ratio, width)
+    settings['wrapped_caption'] = wrapped_caption
     settings['y'] = caption_y
 
     for i in range(frame_count):
