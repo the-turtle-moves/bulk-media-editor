@@ -6,8 +6,9 @@ import sys
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
-from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text
+from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text, get_video_frame
 import random
+
 
 class App(tk.Tk):
     def __init__(self):
@@ -105,7 +106,7 @@ class App(tk.Tk):
         self.random_tilt_checkbox = tk.Checkbutton(self.sync_frame, text="Randomly tilt captions", variable=self.random_tilt_var, command=self.on_tilt_toggle)
         self.random_tilt_checkbox.pack(anchor=tk.W, padx=5, pady=2)
         self.font_outline_var = tk.BooleanVar(value=True)
-        self.font_outline_checkbox = tk.Checkbutton(self.sync_frame, text="Enable font outline", variable=self.font_outline_var, command=self.display_image)
+        self.font_outline_checkbox = tk.Checkbutton(self.sync_frame, text="Enable font outline", variable=self.font_outline_var, command=lambda: self.display_image() if self.preview_image_path else None)
         self.font_outline_checkbox.pack(anchor=tk.W, padx=5, pady=2)
         self.recenter_button = tk.Button(self.sync_frame, text="Recenter All Captions", command=self.recenter_all_captions)
         self.recenter_button.pack(fill=tk.X, padx=5, pady=(2, 5))
@@ -154,9 +155,9 @@ class App(tk.Tk):
         self.filename_frame = tk.LabelFrame(self.control_frame, text="Filename Options")
         self.filename_frame.pack(pady=2, fill=tk.X)
         self.filename_option = tk.StringVar(value="random") # Default to random
-        self.random_name_radio = tk.Radiobutton(self.filename_frame, text="Random Names (default)", variable=self.filename_option, value="random")
+        self.random_name_radio = tk.Radiobutton(self.filename_frame, text="Random", variable=self.filename_option, value="random")
         self.random_name_radio.pack(anchor=tk.W, padx=5)
-        self.sequential_name_radio = tk.Radiobutton(self.filename_frame, text="Sequential (image_000001)", variable=self.filename_option, value="sequential")
+        self.sequential_name_radio = tk.Radiobutton(self.filename_frame, text="Sequential", variable=self.filename_option, value="sequential")
         self.sequential_name_radio.pack(anchor=tk.W, padx=5)
 
         # Resolution Settings
@@ -225,7 +226,7 @@ class App(tk.Tk):
             self.drag_info['start_y_offset'] = event.y - self.caption_bbox_on_preview[1]
 
     def on_mouse_motion(self, event):
-        if not self.preview_image_path: return
+        if not self.preview_image_path or self.original_image_for_preview is None: return
 
         if self.resize_info['is_resizing']:
             settings = self.image_settings[self.preview_image_path]
@@ -423,12 +424,12 @@ class App(tk.Tk):
             file_extension = os.path.splitext(path)[1].lower()
             if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
                 self.original_image_for_preview = Image.open(self.preview_image_path).convert("RGBA")
+            elif file_extension in ['.mp4', '.mov', '.avi']:
+                self.original_image_for_preview = get_video_frame(self.preview_image_path)
             else:
                 self.original_image_for_preview = None
                 self.current_preview_image = None
-                self.current_preview_image = None
-                self.preview_label.config(image=None, text=f"Video preview not yet supported for\n{os.path.basename(self.preview_image_path)}")
-                return
+                self.preview_label.config(image=None, text=f"Unsupported file type for preview\n{os.path.basename(self.preview_image_path)}")
                 return
         except Exception as e:
             self.original_image_for_preview = None
@@ -450,7 +451,11 @@ class App(tk.Tk):
         # Generate wrapped caption if it's missing
         settings = self.image_settings[self.preview_image_path]
         if not settings.get('wrapped_caption') and settings.get('caption'):
-            img_w, _ = self.original_image_for_preview.size
+            if isinstance(self.original_image_for_preview, Image.Image):
+                img_w, _ = self.original_image_for_preview.size
+            else:
+                img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
+
             wrapped = wrap_text(
                 settings['caption'],
                 resource_path(self.config['font_path']),
@@ -481,6 +486,9 @@ class App(tk.Tk):
 
     def _perform_caption_update(self):
         """ Contains the logic that was previously in on_caption_change. """
+        if not self.preview_image_path:
+            return
+
         caption_text = self.caption_text_box.get("1.0", tk.END).strip()
 
         # Determine which paths to update
@@ -495,10 +503,14 @@ class App(tk.Tk):
                 self.image_settings[path]['caption'] = caption_text
                 # Also update the wrapped caption
                 if self.original_image_for_preview and path == self.preview_image_path:
-                    img_w, _ = self.original_image_for_preview.size
+                    if isinstance(self.original_image_for_preview, Image.Image):
+                        img_w, _ = self.original_image_for_preview.size
+                    else:
+                        img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
+
                     wrapped = wrap_text(
                         caption_text, 
-                        resource_path(self.config['font_path']), 
+                        resource_path(self.config['font_path']),
                         self.config['font_size'], 
                         self.config['text_width_ratio'], 
                         img_w
@@ -512,7 +524,7 @@ class App(tk.Tk):
         self.caption_text_box.edit_modified(False)
 
     def display_image(self):
-        if not self.original_image_for_preview:
+        if self.original_image_for_preview is None:
             self.preview_label.config(image=None, text="No image selected or image failed to load.")
             return
 
@@ -581,10 +593,12 @@ class App(tk.Tk):
             self.preview_label.config(image=None, text=f'''Cannot preview {os.path.basename(image_path)}''')
             safe_print(f"Error displaying image: {e}")
 
+    
+
     def add_media(self):
         files = filedialog.askopenfilenames(
             title="Select Images or Videos",
-            filetypes=(("Media Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.webp *.mp4 *.mov *.avi"), ("All files", "*.*" ))
+            filetypes=(("Media Files", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif *.webp *.mp4 *.mov *.avi"), ("All files", "*.*"))
         )
         if not files: return
 
@@ -662,24 +676,26 @@ class App(tk.Tk):
             for path in files_to_process:
                 # This is a bit inefficient to open every image again, but ensures correctness
                 try:
-                    with Image.open(path) as img:
-                        img_w, _ = img.size
-                        wrapped = wrap_text(
-                            current_caption, 
-                            resource_path(self.config['font_path']), 
-                            self.config['font_size'], 
-                            self.config['text_width_ratio'], 
-                            img_w
-                        )
-                    if path in self.image_settings:
-                        self.image_settings[path]['caption'] = current_caption
-                        self.image_settings[path]['wrapped_caption'] = wrapped
-                    else:
-                        self.image_settings[path] = {
-                            'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
-                            'manual_placement': False, 'caption': current_caption, 
-                            'wrapped_caption': wrapped
-                        }
+                    file_extension = os.path.splitext(path)[1].lower()
+                    if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
+                        with Image.open(path) as img:
+                            img_w, _ = img.size
+                            wrapped = wrap_text(
+                                current_caption, 
+                                resource_path(self.config['font_path']),
+                                self.config['font_size'], 
+                                self.config['text_width_ratio'], 
+                                img_w
+                            )
+                        if path in self.image_settings:
+                            self.image_settings[path]['caption'] = current_caption
+                            self.image_settings[path]['wrapped_caption'] = wrapped
+                        else:
+                            self.image_settings[path] = {
+                                'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
+                                'manual_placement': False, 'caption': current_caption, 
+                                'wrapped_caption': wrapped
+                            }
                 except Exception as e:
                     safe_print(f"Could not process/wrap text for {path}: {e}")
                     continue # Skip this image if it fails
