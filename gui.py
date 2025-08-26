@@ -8,7 +8,8 @@ from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
 from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text, get_video_frame
 import random
-
+import threading
+import queue
 
 class App(tk.Tk):
     def __init__(self):
@@ -29,6 +30,7 @@ class App(tk.Tk):
         self.resize_handle_bbox = None
         self.updating_caption_box = False
         self.caption_update_timer = None # For debouncing caption input
+        self.progress_queue = queue.Queue()
 
         self.mp_face_detection = mp.solutions.face_detection
         self.face_detector = self.mp_face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.5)
@@ -318,15 +320,7 @@ class App(tk.Tk):
         self.total_images_var.set(f"Total: {total_count}")
         self.selected_images_var.set(f"Selected: {selected_count}")
 
-    def update_progress(self, current, total, video_index=None, total_videos=None):
-        if video_index is not None and total_videos is not None:
-            # Update the overall progress bar
-            overall_progress = ((video_index + (current / total)) / total_videos) * 100
-            self.progress_bar['value'] = overall_progress
-        else:
-            # Update the progress bar for a single process
-            self.progress_bar['value'] = (current / total) * 100
-        self.update_idletasks()
+    
 
     def on_sync_caption_toggle(self, *args):
         is_synced = self.sync_caption_var.get()
@@ -676,6 +670,11 @@ class App(tk.Tk):
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
+        thread = threading.Thread(target=self._process_images_thread, args=(files_to_process, output_folder))
+        thread.start()
+        self._update_progress_from_queue("images")
+
+    def _process_images_thread(self, files_to_process, output_folder):
         try:
             # Ensure all images have up-to-date caption and wrapped_caption info before processing
             current_caption = self.caption_text_box.get("1.0", tk.END).strip()
@@ -732,12 +731,12 @@ class App(tk.Tk):
                 stroke_width=self.config['stroke_width'],
                 resolution=resolution,
                 image_settings=self.image_settings,
-                progress_callback=self.update_progress,
+                progress_callback=lambda current, total: self.progress_queue.put((current / total) * 100),
                 random_tilt=self.random_tilt_var.get(),
                 font_outline=self.font_outline_var.get(),
                 filename_option=self.filename_option.get()
             )
-            messagebox.showinfo("Success", "Image processing complete!")
+            self.progress_queue.put("done_images")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
             import traceback
@@ -745,9 +744,7 @@ class App(tk.Tk):
             s = io.StringIO()
             traceback.print_exc(file=s)
             self.show_error_popup(s.getvalue())
-        finally:
-            self.start_button.config(state=tk.NORMAL)
-            self.progress_bar.pack_forget()
+            self.progress_queue.put("done_images")
 
     def start_video_processing(self):
         selection = self.listbox.curselection()
@@ -767,6 +764,11 @@ class App(tk.Tk):
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
+        thread = threading.Thread(target=self._process_videos_thread, args=(video_paths, output_folder))
+        thread.start()
+        self._update_progress_from_queue("videos")
+
+    def _process_videos_thread(self, video_paths, output_folder):
         total_videos = len(video_paths)
         for i, path in enumerate(video_paths):
             try:
@@ -781,7 +783,7 @@ class App(tk.Tk):
                     stroke_color=tuple(self.config['stroke_color']),
                     stroke_width=self.config['stroke_width'],
                     image_settings=self.image_settings,
-                    progress_callback=lambda current, total: self.update_progress(current, total, i, total_videos),
+                    progress_callback=lambda current, total: self.progress_queue.put(((i + (current / total)) / total_videos) * 100),
                     random_tilt=self.random_tilt_var.get(),
                     font_outline=self.font_outline_var.get(),
                     filename_option=self.filename_option.get(),
@@ -795,9 +797,24 @@ class App(tk.Tk):
                 traceback.print_exc(file=s)
                 self.show_error_popup(s.getvalue())
 
-        self.process_video_button.config(state=tk.NORMAL)
-        self.progress_bar.pack_forget()
-        messagebox.showinfo("Success", "Video processing complete!")
+        self.progress_queue.put("done_videos")
+
+    def _update_progress_from_queue(self, process_type):
+        try:
+            progress = self.progress_queue.get_nowait()
+            if progress == "done_images":
+                self.start_button.config(state=tk.NORMAL)
+                self.progress_bar.pack_forget()
+                messagebox.showinfo("Success", "Image processing complete!")
+            elif progress == "done_videos":
+                self.process_video_button.config(state=tk.NORMAL)
+                self.progress_bar.pack_forget()
+                messagebox.showinfo("Success", "Video processing complete!")
+            else:
+                self.progress_bar['value'] = progress
+                self.after(100, lambda: self._update_progress_from_queue(process_type))
+        except queue.Empty:
+            self.after(100, lambda: self._update_progress_from_queue(process_type))
 
 if __name__ == "__main__":
     app = App()
