@@ -185,7 +185,7 @@ class App(tk.Tk):
         self.start_button = tk.Button(self.processing_buttons_frame, text="Process Images", command=self.start_processing)
         self.start_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
 
-        self.process_video_button = tk.Button(self.processing_buttons_frame, text="Process Video", command=self.start_video_processing)
+        self.process_video_button = tk.Button(self.processing_buttons_frame, text="Process Videos", command=self.start_video_processing)
         self.process_video_button.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
 
         self.progress_bar = ttk.Progressbar(self.control_frame, orient='horizontal', mode='determinate')
@@ -318,8 +318,14 @@ class App(tk.Tk):
         self.total_images_var.set(f"Total: {total_count}")
         self.selected_images_var.set(f"Selected: {selected_count}")
 
-    def update_progress(self, current, total):
-        self.progress_bar['value'] = (current / total) * 100
+    def update_progress(self, current, total, video_index=None, total_videos=None):
+        if video_index is not None and total_videos is not None:
+            # Update the overall progress bar
+            overall_progress = ((video_index + (current / total)) / total_videos) * 100
+            self.progress_bar['value'] = overall_progress
+        else:
+            # Update the progress bar for a single process
+            self.progress_bar['value'] = (current / total) * 100
         self.update_idletasks()
 
     def on_sync_caption_toggle(self, *args):
@@ -746,16 +752,10 @@ class App(tk.Tk):
     def start_video_processing(self):
         selection = self.listbox.curselection()
         if not selection:
-            messagebox.showwarning("No File Selected", "Please select a video file to process.")
+            messagebox.showwarning("No Files Selected", "Please select one or more video files to process.")
             return
 
-        selected_index = selection[0]
-        path = self.image_list[selected_index]
-
-        file_extension = os.path.splitext(path)[1].lower()
-        if file_extension not in ['.mp4', '.mov', '.avi']:
-            messagebox.showwarning("Invalid File Type", "Please select a video file to process.")
-            return
+        video_paths = [self.image_list[i] for i in selection]
 
         output_folder = self.output_folder_path.get()
         if not output_folder:
@@ -767,35 +767,37 @@ class App(tk.Tk):
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
-        try:
-            from image_processor import process_video
-            process_video(
-                video_path=path,
-                output_folder=output_folder,
-                font_path=resource_path(self.config['font_path']),
-                font_size=self.config['font_size'],
-                text_width_ratio=self.config['text_width_ratio'],
-                text_color=tuple(self.config['text_color']),
-                stroke_color=tuple(self.config['stroke_color']),
-                stroke_width=self.config['stroke_width'],
-                image_settings=self.image_settings,
-                progress_callback=self.update_progress,
-                random_tilt=self.random_tilt_var.get(),
-                font_outline=self.font_outline_var.get(),
-                filename_option=self.filename_option.get(),
-                face_detector=self.face_detector
-            )
-            messagebox.showinfo("Success", "Video processing complete!")
-        except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {e}")
-            import traceback
-            import io
-            s = io.StringIO()
-            traceback.print_exc(file=s)
-            self.show_error_popup(s.getvalue())
-        finally:
-            self.process_video_button.config(state=tk.NORMAL)
-            self.progress_bar.pack_forget()
+        total_videos = len(video_paths)
+        for i, path in enumerate(video_paths):
+            try:
+                from image_processor import process_video
+                process_video(
+                    video_path=path,
+                    output_folder=output_folder,
+                    font_path=resource_path(self.config['font_path']),
+                    font_size=self.config['font_size'],
+                    text_width_ratio=self.config['text_width_ratio'],
+                    text_color=tuple(self.config['text_color']),
+                    stroke_color=tuple(self.config['stroke_color']),
+                    stroke_width=self.config['stroke_width'],
+                    image_settings=self.image_settings,
+                    progress_callback=lambda current, total: self.update_progress(current, total, i, total_videos),
+                    random_tilt=self.random_tilt_var.get(),
+                    font_outline=self.font_outline_var.get(),
+                    filename_option=self.filename_option.get(),
+                    face_detector=self.face_detector
+                )
+            except Exception as e:
+                messagebox.showerror("Error", f"An error occurred while processing {os.path.basename(path)}: {e}")
+                import traceback
+                import io
+                s = io.StringIO()
+                traceback.print_exc(file=s)
+                self.show_error_popup(s.getvalue())
+
+        self.process_video_button.config(state=tk.NORMAL)
+        self.progress_bar.pack_forget()
+        messagebox.showinfo("Success", "Video processing complete!")
 
 if __name__ == "__main__":
     app = App()
