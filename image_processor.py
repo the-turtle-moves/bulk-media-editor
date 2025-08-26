@@ -110,6 +110,8 @@ def multiline_bbox(draw, text, font, stroke_w=0, **kw):
 def get_automatic_placement_coords(image_input, original_width, original_height, block_height, face_detector):
     if isinstance(image_input, str):
         cv_image = cv2.imread(image_input)
+    elif isinstance(image_input, np.ndarray):
+        cv_image = image_input
     else: # Assumes PIL Image
         cv_image = cv2.cvtColor(np.array(image_input.convert('RGB')), cv2.COLOR_RGB2BGR)
     
@@ -364,6 +366,15 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
         wrapped_caption = wrap_text(caption_text, font_path, font_size, text_width_ratio, width)
         settings['wrapped_caption'] = wrapped_caption
 
+        # Get the caption position once before processing the frames
+        dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
+        initial_font_size = int(font_size * (width / 1080))
+        initial_font = ImageFont.truetype(resource_path(font_path), initial_font_size)
+        final_caption_text = replace_quotes(wrapped_caption if wrapped_caption else caption_text)
+        _, initial_th = multiline_bbox(dummy_draw, final_caption_text, font=initial_font, spacing=12)
+        settings['y'] = get_automatic_placement_coords(original_clip.get_frame(0), width, height, initial_th, face_detector)
+
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
@@ -377,15 +388,16 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
 
         out.release()
 
+        video_clip = VideoFileClip(output_path)
         if original_clip.audio:
             with AudioFileClip(video_path) as audio_clip:
-                video_clip = VideoFileClip(output_path)
                 final_clip = video_clip.with_audio(audio_clip)
                 final_clip.write_videofile(output_path.replace('.mp4', '_with_audio.mp4'), codec='libx264', audio_codec='aac')
                 final_clip.close()
-                video_clip.close()
                 os.remove(output_path)
                 os.rename(output_path.replace('.mp4', '_with_audio.mp4'), output_path)
+
+        video_clip.close()
 
     safe_print('Success! Video {} has been captioned and saved in the "{}" folder.'.format(output_filename, output_folder))
 

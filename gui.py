@@ -790,19 +790,18 @@ class App(tk.Tk):
                     face_detector=self.face_detector
                 )
             except Exception as e:
-                messagebox.showerror("Error", f"An error occurred while processing {os.path.basename(path)}: {e}")
-                import traceback
-                import io
-                s = io.StringIO()
-                traceback.print_exc(file=s)
-                self.show_error_popup(s.getvalue())
+                self.progress_queue.put(("error", f"An error occurred while processing {os.path.basename(path)}: {e}"))
 
         self.progress_queue.put("done_videos")
 
     def _update_progress_from_queue(self, process_type):
         try:
             progress = self.progress_queue.get_nowait()
-            if progress == "done_images":
+            if isinstance(progress, tuple) and progress[0] == "error":
+                messagebox.showerror("Error", progress[1])
+                self.process_video_button.config(state=tk.NORMAL)
+                self.progress_bar.pack_forget()
+            elif progress == "done_images":
                 self.start_button.config(state=tk.NORMAL)
                 self.progress_bar.pack_forget()
                 messagebox.showinfo("Success", "Image processing complete!")
