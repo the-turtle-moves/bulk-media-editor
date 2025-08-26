@@ -759,16 +759,29 @@ class App(tk.Tk):
             messagebox.showwarning("No Output Folder", "Please select an output folder.")
             return
 
+        resolution = None
+        if self.resize_enabled.get():
+            try:
+                width = int(self.width_var.get())
+                height = int(self.height_var.get())
+                if width > 0 and height > 0:
+                    resolution = (width, height)
+                else:
+                    raise ValueError()
+            except ValueError:
+                messagebox.showerror("Invalid Resolution", "Please enter valid, positive integers for width and height.")
+                return
+
         self.process_video_button.config(state=tk.DISABLED)
         self.progress_bar.pack(fill=tk.X, padx=5, pady=5)
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
-        thread = threading.Thread(target=self._process_videos_thread, args=(video_paths, output_folder))
+        thread = threading.Thread(target=self._process_videos_thread, args=(video_paths, output_folder, resolution))
         thread.start()
         self._update_progress_from_queue("videos")
 
-    def _process_videos_thread(self, video_paths, output_folder):
+    def _process_videos_thread(self, video_paths, output_folder, resolution):
         total_videos = len(video_paths)
         for i, path in enumerate(video_paths):
             try:
@@ -782,6 +795,7 @@ class App(tk.Tk):
                     text_color=tuple(self.config['text_color']),
                     stroke_color=tuple(self.config['stroke_color']),
                     stroke_width=self.config['stroke_width'],
+                    resolution=resolution,
                     image_settings=self.image_settings,
                     progress_callback=lambda current, total: self.progress_queue.put(((i + (current / total)) / total_videos) * 100),
                     random_tilt=self.random_tilt_var.get(),

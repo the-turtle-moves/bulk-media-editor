@@ -331,7 +331,7 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
 
     safe_print('Success! All images have been captioned and saved in the "{}" folder.'.format(output_folder))
 
-def process_video(video_path, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random", face_detector=None):
+def process_video(video_path, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random", face_detector=None):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -339,8 +339,12 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
         image_settings = {}
 
     with VideoFileClip(video_path) as original_clip:
-        width, height = original_clip.size
-        fps = original_clip.fps
+        if resolution:
+            width, height = resolution
+            fps = original_clip.fps
+        else:
+            width, height = original_clip.size
+            fps = original_clip.fps
 
         if filename_option == "random":
             new_filename_base = uuid.uuid4().hex[:8]
@@ -380,6 +384,8 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
 
         for i, frame in enumerate(original_clip.iter_frames()):
             pil_image = Image.fromarray(frame).convert("RGBA")
+            if resolution:
+                pil_image = resize_and_crop(pil_image, resolution[0], resolution[1])
             final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline)
             final_frame = cv2.cvtColor(np.array(final_image.convert("RGB")), cv2.COLOR_RGB2BGR)
             out.write(final_frame)
