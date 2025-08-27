@@ -655,9 +655,10 @@ class App(tk.Tk):
             self.on_file_select()
 
     def start_processing(self):
-        files_to_process = self.image_list
+        files_to_process = [file for file in self.image_list if os.path.splitext(file)[1].lower() in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']]
+
         if not files_to_process:
-            messagebox.showwarning("No Files", "Please add images to the list first.")
+            messagebox.showwarning("No Images", "No images found in the list.")
             return
 
         output_folder = self.output_folder_path.get()
@@ -747,12 +748,11 @@ class App(tk.Tk):
             self.progress_queue.put("done_images")
 
     def start_video_processing(self):
-        selection = self.listbox.curselection()
-        if not selection:
-            messagebox.showwarning("No Files Selected", "Please select one or more video files to process.")
-            return
+        video_paths = [file for file in self.image_list if os.path.splitext(file)[1].lower() in ['.mp4', '.mov', '.avi']]
 
-        video_paths = [self.image_list[i] for i in selection]
+        if not video_paths:
+            messagebox.showwarning("No Videos", "No videos found in the list.")
+            return
 
         output_folder = self.output_folder_path.get()
         if not output_folder:
