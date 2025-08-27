@@ -811,11 +811,7 @@ class App(tk.Tk):
     def _update_progress_from_queue(self, process_type):
         try:
             progress = self.progress_queue.get_nowait()
-            if isinstance(progress, tuple) and progress[0] == "error":
-                messagebox.showerror("Error", progress[1])
-                self.process_video_button.config(state=tk.NORMAL)
-                self.progress_bar.pack_forget()
-            elif progress == "done_images":
+            if progress == "done_images":
                 self.start_button.config(state=tk.NORMAL)
                 self.progress_bar.pack_forget()
                 messagebox.showinfo("Success", "Image processing complete!")

@@ -379,6 +379,9 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
         settings['y'] = get_automatic_placement_coords(original_clip.get_frame(0), width, height, initial_th, face_detector)
 
 
+        if resolution:
+            width, height = resolution
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
 
@@ -394,16 +397,15 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
 
         out.release()
 
-        video_clip = VideoFileClip(output_path)
         if original_clip.audio:
             with AudioFileClip(video_path) as audio_clip:
+                video_clip = VideoFileClip(output_path)
                 final_clip = video_clip.with_audio(audio_clip)
                 final_clip.write_videofile(output_path.replace('.mp4', '_with_audio.mp4'), codec='libx264', audio_codec='aac')
                 final_clip.close()
+                video_clip.close()
                 os.remove(output_path)
                 os.rename(output_path.replace('.mp4', '_with_audio.mp4'), output_path)
-
-        video_clip.close()
 
     safe_print('Success! Video {} has been captioned and saved in the "{}" folder.'.format(output_filename, output_folder))
 
