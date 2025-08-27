@@ -114,6 +114,18 @@ class App(tk.Tk):
         self.recenter_button.pack(fill=tk.X, padx=5, pady=(2, 5))
         self.sync_caption_var.trace_add('write', self.on_sync_caption_toggle)
 
+        # Grouping Options
+        self.grouping_frame = tk.LabelFrame(self.control_frame, text="Grouping Options")
+        self.grouping_frame.pack(pady=2, fill=tk.X, padx=2)
+        self.group_size_label = tk.Label(self.grouping_frame, text="Number of groups (1 for all):")
+        self.group_size_label.pack(side=tk.LEFT, padx=5, pady=5)
+        self.group_size_var = tk.StringVar(value="1")
+        self.group_size_entry = tk.Entry(self.grouping_frame, textvariable=self.group_size_var, width=5)
+        self.group_size_entry.pack(side=tk.LEFT, padx=5, pady=5)
+        self.separate_folders_var = tk.BooleanVar(value=False)
+        self.separate_folders_checkbox = tk.Checkbutton(self.grouping_frame, text="Save in separate folders", variable=self.separate_folders_var)
+        self.separate_folders_checkbox.pack(side=tk.LEFT, padx=5, pady=5)
+
         # Outline Settings
         self.outline_frame = tk.LabelFrame(self.control_frame, text="Outline Settings")
         self.outline_frame.pack(pady=2, fill=tk.X)
@@ -413,13 +425,11 @@ class App(tk.Tk):
         selected_index = selection[0]
         path = self.image_list[selected_index]
 
-        # Prevent reloading if the same image is clicked again
         if path == self.preview_image_path:
             return
 
         self.preview_image_path = path
         
-        # Optimization: Load the image once on selection and cache it.
         try:
             file_extension = os.path.splitext(path)[1].lower()
             if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
@@ -438,89 +448,104 @@ class App(tk.Tk):
             safe_print(f"Error loading image for preview: {e}")
             return
 
-        # Get the global caption before initializing settings for a new image
-        global_caption = self.caption_text_box.get("1.0", tk.END).strip()
+        caption_for_preview = self._get_caption_for_image_index(selected_index)
 
         if self.preview_image_path not in self.image_settings:
             self.image_settings[self.preview_image_path] = {
                 'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
-                'manual_placement': False, 'caption': global_caption,
-                'wrapped_caption': '' # Initialize empty
+                'manual_placement': False, 'caption': '', 'wrapped_caption': ''
             }
 
-        # Generate wrapped caption if it's missing
+        self.image_settings[self.preview_image_path]['caption'] = caption_for_preview
+
         settings = self.image_settings[self.preview_image_path]
-        if not settings.get('wrapped_caption') and settings.get('caption'):
+        if isinstance(self.original_image_for_preview, Image.Image):
+            img_w, _ = self.original_image_for_preview.size
+        else:
+            img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
+
+        wrapped = wrap_text(
+            settings['caption'],
+            resource_path(self.config['font_path']),
+            self.config['font_size'],
+            self.config['text_width_ratio'],
+            img_w
+        )
+        self.image_settings[self.preview_image_path]['wrapped_caption'] = wrapped
+
+        self.display_image()
+
+    def _get_caption_for_image_index(self, index):
+        try:
+            num_groups = int(self.group_size_var.get())
+        except ValueError:
+            num_groups = 1
+
+        captions_text = self.caption_text_box.get("1.0", tk.END).strip()
+        captions = [c for c in captions_text.split('\n') if c.strip()]
+        
+        if not captions:
+            return ""
+
+        if num_groups > 1:
+            total_images = len(self.image_list)
+            if total_images == 0:
+                return captions[0] if captions else ""
+
+            base_size = total_images // num_groups
+            remainder = total_images % num_groups
+            
+            current_pos = 0
+            for i in range(num_groups):
+                group_size_for_this_group = base_size + (1 if i < remainder else 0)
+                if current_pos <= index < current_pos + group_size_for_this_group:
+                    return captions[i % len(captions)]
+                current_pos += group_size_for_this_group
+            
+            return captions[0]
+        else:
+            return captions[0]
+
+    def on_caption_change(self, event=None):
+        if self.updating_caption_box:
+            return
+
+        if self.caption_update_timer:
+            self.after_cancel(self.caption_update_timer)
+        self.caption_update_timer = self.after(300, self._perform_caption_update)
+
+    def _perform_caption_update(self):
+        """ Updates the preview based on the content of the caption box. """
+        if not self.preview_image_path:
+            self.caption_text_box.edit_modified(False)
+            return
+
+        try:
+            idx = self.image_list.index(self.preview_image_path)
+        except ValueError:
+            self.caption_text_box.edit_modified(False)
+            return
+
+        caption_for_preview = self._get_caption_for_image_index(idx)
+        
+        self.image_settings[self.preview_image_path]['caption'] = caption_for_preview
+
+        if self.original_image_for_preview and self.preview_image_path in self.image_settings:
             if isinstance(self.original_image_for_preview, Image.Image):
                 img_w, _ = self.original_image_for_preview.size
             else:
                 img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
 
             wrapped = wrap_text(
-                settings['caption'],
+                caption_for_preview, 
                 resource_path(self.config['font_path']),
-                self.config['font_size'],
-                self.config['text_width_ratio'],
+                self.config['font_size'], 
+                self.config['text_width_ratio'], 
                 img_w
             )
             self.image_settings[self.preview_image_path]['wrapped_caption'] = wrapped
 
-        # If not syncing, update the textbox to show the image's specific caption
-        if not self.sync_caption_var.get():
-            self.updating_caption_box = True # Prevent on_caption_change from firing
-            self.caption_text_box.delete("1.0", tk.END)
-            self.caption_text_box.insert("1.0", self.image_settings[self.preview_image_path].get('caption', ''))
-            self.caption_text_box.edit_modified(False) # Reset modified flag
-            self.updating_caption_box = False
-
         self.display_image()
-
-    def on_caption_change(self, event=None):
-        if self.updating_caption_box:
-            return
-
-        # Debounce: cancel previous timer and set a new one
-        if self.caption_update_timer:
-            self.after_cancel(self.caption_update_timer)
-        self.caption_update_timer = self.after(300, self._perform_caption_update)
-
-    def _perform_caption_update(self):
-        """ Contains the logic that was previously in on_caption_change. """
-        if not self.preview_image_path:
-            return
-
-        caption_text = self.caption_text_box.get("1.0", tk.END).strip()
-
-        # Determine which paths to update
-        paths_to_update = []
-        if self.sync_caption_var.get():
-            paths_to_update = self.image_list
-        elif self.preview_image_path:
-            paths_to_update.append(self.preview_image_path)
-
-        for path in paths_to_update:
-            if path in self.image_settings:
-                self.image_settings[path]['caption'] = caption_text
-                # Also update the wrapped caption
-                if self.original_image_for_preview and path == self.preview_image_path:
-                    if isinstance(self.original_image_for_preview, Image.Image):
-                        img_w, _ = self.original_image_for_preview.size
-                    else:
-                        img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
-
-                    wrapped = wrap_text(
-                        caption_text, 
-                        resource_path(self.config['font_path']),
-                        self.config['font_size'], 
-                        self.config['text_width_ratio'], 
-                        img_w
-                    )
-                    self.image_settings[path]['wrapped_caption'] = wrapped
-
-        if self.preview_image_path:
-            self.display_image()
-        
-        # Reset the modified flag only after the update is complete
         self.caption_text_box.edit_modified(False)
 
     def display_image(self):
@@ -665,46 +690,43 @@ class App(tk.Tk):
         if not output_folder:
             messagebox.showwarning("No Output Folder", "Please select an output folder.")
             return
+        
+        try:
+            group_size = int(self.group_size_var.get())
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Group size must be a valid number.")
+            return
+
+        captions = self.caption_text_box.get("1.0", tk.END).strip().split('\n')
+        captions = [c for c in captions if c.strip()]
+        separate_folders = self.separate_folders_var.get()
 
         self.start_button.config(state=tk.DISABLED)
         self.progress_bar.pack(fill=tk.X, padx=5, pady=5)
         self.progress_bar['value'] = 0
         self.update_idletasks()
 
-        thread = threading.Thread(target=self._process_images_thread, args=(files_to_process, output_folder))
+        thread = threading.Thread(target=self._process_images_thread, args=(files_to_process, output_folder, group_size, captions, separate_folders))
         thread.start()
         self._update_progress_from_queue("images")
 
-    def _process_images_thread(self, files_to_process, output_folder):
+    def _process_images_thread(self, files_to_process, output_folder, group_size, captions, separate_folders):
         try:
-            # Ensure all images have up-to-date caption and wrapped_caption info before processing
-            current_caption = self.caption_text_box.get("1.0", tk.END).strip()
-            for path in files_to_process:
-                # This is a bit inefficient to open every image again, but ensures correctness
-                try:
-                    file_extension = os.path.splitext(path)[1].lower()
-                    if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
-                        with Image.open(path) as img:
-                            img_w, _ = img.size
-                            wrapped = wrap_text(
-                                current_caption, 
-                                resource_path(self.config['font_path']),
-                                self.config['font_size'], 
-                                self.config['text_width_ratio'], 
-                                img_w
-                            )
-                        if path in self.image_settings:
-                            self.image_settings[path]['caption'] = current_caption
-                            self.image_settings[path]['wrapped_caption'] = wrapped
-                        else:
-                            self.image_settings[path] = {
-                                'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 
-                                'manual_placement': False, 'caption': current_caption, 
-                                'wrapped_caption': wrapped
-                            }
-                except Exception as e:
-                    safe_print(f"Could not process/wrap text for {path}: {e}")
-                    continue # Skip this image if it fails
+            num_groups = group_size
+            total_images = len(files_to_process)
+
+            if num_groups > 1 and total_images > 0:
+                base_size = total_images // num_groups
+                remainder = total_images % num_groups
+                image_groups = []
+                current_pos = 0
+                for i in range(num_groups):
+                    group_size_for_this_group = base_size + (1 if i < remainder else 0)
+                    image_groups.append(files_to_process[current_pos:current_pos + group_size_for_this_group])
+                    current_pos += group_size_for_this_group
+            else:
+                image_groups = [files_to_process]
+                captions = [captions[0] if captions else '']
 
             resolution = None
             if self.resize_enabled.get():
@@ -716,36 +738,72 @@ class App(tk.Tk):
                     else:
                         raise ValueError()
                 except ValueError:
-                    messagebox.showerror("Invalid Resolution", "Please enter valid, positive integers for width and height.")
-                    self.start_button.config(state=tk.NORMAL)
-                    self.progress_bar.pack_forget()
+                    self.progress_queue.put(("error", "Invalid Resolution: Please enter valid, positive integers for width and height."))
                     return
 
-            process_images(
-                image_paths=files_to_process,
-                output_folder=output_folder,
-                font_path=resource_path(self.config['font_path']),
-                font_size=self.config['font_size'],
-                text_width_ratio=self.config['text_width_ratio'],
-                text_color=tuple(self.config['text_color']),
-                stroke_color=tuple(self.config['stroke_color']),
-                stroke_width=self.config['stroke_width'],
-                resolution=resolution,
-                image_settings=self.image_settings,
-                progress_callback=lambda current, total: self.progress_queue.put((current / total) * 100),
-                random_tilt=self.random_tilt_var.get(),
-                font_outline=self.font_outline_var.get(),
-                filename_option=self.filename_option.get()
-            )
+            files_processed_count = 0
+            total_files_count = len(files_to_process)
+
+            for i, group in enumerate(image_groups):
+                if captions:
+                    group_caption = captions[i % len(captions)]
+                else:
+                    group_caption = ""
+                group_output_folder = output_folder
+                
+                if separate_folders and group_size > 0:
+                    start_num = i * group_size + 1
+                    end_num = start_num + len(group) - 1
+                    folder_name = f"group_{start_num}-{end_num}"
+                    group_output_folder = os.path.join(output_folder, folder_name)
+
+                for path in group:
+                    try:
+                        # This is inefficient but matches original design
+                        with Image.open(path) as img:
+                            img_w, _ = img.size
+                            wrapped = wrap_text(
+                                group_caption,
+                                resource_path(self.config['font_path']),
+                                self.config['font_size'],
+                                self.config['text_width_ratio'],
+                                img_w
+                            )
+                        
+                        # Use existing settings if available, but update caption
+                        if path not in self.image_settings:
+                             self.image_settings[path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False}
+                        self.image_settings[path]['caption'] = group_caption
+                        self.image_settings[path]['wrapped_caption'] = wrapped
+
+                    except Exception as e:
+                        safe_print(f"Could not process/wrap text for {path}: {e}")
+
+                process_images(
+                    image_paths=group,
+                    output_folder=group_output_folder,
+                    font_path=resource_path(self.config['font_path']),
+                    font_size=self.config['font_size'],
+                    text_width_ratio=self.config['text_width_ratio'],
+                    text_color=tuple(self.config['text_color']),
+                    stroke_color=tuple(self.config['stroke_color']),
+                    stroke_width=self.config['stroke_width'],
+                    resolution=resolution,
+                    image_settings=self.image_settings,
+                    progress_callback=lambda current, total: self.progress_queue.put(((files_processed_count + current) / total_files_count) * 100),
+                    random_tilt=self.random_tilt_var.get(),
+                    font_outline=self.font_outline_var.get(),
+                    filename_option=self.filename_option.get()
+                )
+                files_processed_count += len(group)
+
             self.progress_queue.put("done_images")
         except Exception as e:
-            messagebox.showerror("Error", f"An error occurred: {e}")
             import traceback
             import io
             s = io.StringIO()
             traceback.print_exc(file=s)
-            self.show_error_popup(s.getvalue())
-            self.progress_queue.put("done_images")
+            self.progress_queue.put(("error", f"An unexpected error occurred: {e}\n{s.getvalue()}"))
 
     def start_video_processing(self):
         video_paths = [file for file in self.image_list if os.path.splitext(file)[1].lower() in ['.mp4', '.mov', '.avi']]
@@ -811,6 +869,21 @@ class App(tk.Tk):
     def _update_progress_from_queue(self, process_type):
         try:
             progress = self.progress_queue.get_nowait()
+
+            if isinstance(progress, tuple) and progress[0] == "error":
+                _, error_message = progress
+                if "\n" in error_message: # Check if it's a detailed traceback
+                    self.show_error_popup(error_message)
+                else:
+                    messagebox.showerror("Error", error_message)
+                
+                if process_type == "images":
+                    self.start_button.config(state=tk.NORMAL)
+                elif process_type == "videos":
+                    self.process_video_button.config(state=tk.NORMAL)
+                self.progress_bar.pack_forget()
+                return # Stop polling
+
             if progress == "done_images":
                 self.start_button.config(state=tk.NORMAL)
                 self.progress_bar.pack_forget()
