@@ -384,6 +384,24 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
 
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+        # In some packaged environments, the writer may fail to initialize properly.
+        # Guard writes to avoid 'NoneType'. Try a couple of common fourcc fallbacks.
+        if out is None or not hasattr(out, 'isOpened') or not out.isOpened():
+            try:
+                # Try avc1 (h264 tag)
+                fourcc_alt = cv2.VideoWriter_fourcc(*'avc1')
+                out = cv2.VideoWriter(output_path, fourcc_alt, fps, (width, height))
+            except Exception:
+                out = None
+        if out is None or not hasattr(out, 'isOpened') or not out.isOpened():
+            try:
+                # Try XVID as a widely supported fallback
+                fourcc_alt2 = cv2.VideoWriter_fourcc(*'XVID')
+                out = cv2.VideoWriter(output_path, fourcc_alt2, fps, (width, height))
+            except Exception:
+                out = None
+        if out is None or not hasattr(out, 'isOpened') or not out.isOpened():
+            raise RuntimeError("Failed to initialize video writer. Check codecs and output path.")
 
         for i, frame in enumerate(original_clip.iter_frames()):
             pil_image = Image.fromarray(frame).convert("RGBA")
@@ -401,7 +419,14 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
             with AudioFileClip(video_path) as audio_clip:
                 video_clip = VideoFileClip(output_path)
                 final_clip = video_clip.with_audio(audio_clip)
-                final_clip.write_videofile(output_path.replace('.mp4', '_with_audio.mp4'), codec='libx264', audio_codec='aac')
+                # Disable MoviePy/proglog console logging to avoid writes to a missing stdout
+                # in bundled (no-console) executables.
+                final_clip.write_videofile(
+                    output_path.replace('.mp4', '_with_audio.mp4'),
+                    codec='libx264',
+                    audio_codec='aac',
+                    logger=None
+                )
                 final_clip.close()
                 video_clip.close()
                 os.remove(output_path)
