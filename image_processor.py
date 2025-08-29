@@ -1,6 +1,7 @@
 import os
 import sys
 import uuid
+from functools import lru_cache
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
 import cv2
@@ -8,6 +9,16 @@ import mediapipe as mp
 import numpy as np
 import random
 from moviepy import VideoFileClip, AudioFileClip
+
+# Reuse a single dummy draw for text measurement and cache fonts for speed
+_DUMMY_DRAW = ImageDraw.Draw(Image.new('RGBA', (0, 0)))
+
+@lru_cache(maxsize=128)
+def _get_font(path, size):
+    return ImageFont.truetype(path, size)
+
+def _text_bbox(text, font, stroke_w=0, spacing=12, **kw):
+    return multiline_bbox(_DUMMY_DRAW, text, font, stroke_w=stroke_w, spacing=spacing, **kw)
 
 def replace_quotes(text):
     text = str(text)
@@ -29,12 +40,11 @@ def wrap_text(caption_text, font_path, font_size, text_width_ratio, image_width)
     """
     Wraps the text based on the image width and returns a newline-separated string.
     """
-    dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
     # Scale font size based on image width for an initial good wrapping estimate.
     scaled_font_size = int(font_size * (image_width / 1080))
-    font = ImageFont.truetype(font_path, scaled_font_size)
+    font = _get_font(font_path, scaled_font_size)
     
-    single_line_bbox = dummy_draw.textbbox((0, 0), caption_text, font=font)
+    single_line_bbox = _DUMMY_DRAW.textbbox((0, 0), caption_text, font=font)
     single_line_width = single_line_bbox[2] - single_line_bbox[0]
     
     max_text_width = image_width * text_width_ratio
@@ -49,7 +59,7 @@ def wrap_text(caption_text, font_path, font_size, text_width_ratio, image_width)
 def draw_caption(draw, caption_text, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, original_width, original_height, target_caption_width=None):
     # Scale font size based on image width. The base font_size is for a 1080px wide image.
     scaled_font_size = int(font_size * (original_width / 1080))
-    font = ImageFont.truetype(font_path, scaled_font_size)
+    font = _get_font(font_path, scaled_font_size)
     
     single_line_bbox = draw.textbbox((0, 0), caption_text, font=font)
     single_line_width = single_line_bbox[2] - single_line_bbox[0]
@@ -196,15 +206,13 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
     avg_scale = (scale_x + scale_y) / 2
     # The base font_size is scaled by the user's resize operations and the image's own width.
     scaled_font_size = int(config['font_size'] * (original_width / 1080) * avg_scale)
-    font = ImageFont.truetype(resource_path(config['font_path']), scaled_font_size)
+    font = _get_font(resource_path(config['font_path']), scaled_font_size)
     scaled_stroke_width = int(config['stroke_width'] * (original_width / 1080) * avg_scale)
     if not font_outline:
         scaled_stroke_width = 0
 
-    dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
-    
     # Get the bounding box of the final wrapped text
-    tw, th = multiline_bbox(dummy_draw, final_caption_text, font, stroke_w=scaled_stroke_width, spacing=12)
+    tw, th = _text_bbox(final_caption_text, font, stroke_w=scaled_stroke_width, spacing=12)
     th += int(scaled_font_size * 0.2) # Add 20% padding to prevent clipping
     
     # --- PLACEMENT LOGIC ---
@@ -214,8 +222,8 @@ def generate_captioned_image(base_image, settings, config, face_detector, random
     # Block height for automatic placement needs to be calculated based on the unscaled font size
     if y is None:
         initial_font_size = int(config['font_size'] * (original_width / 1080))
-        initial_font = ImageFont.truetype(resource_path(config['font_path']), initial_font_size)
-        _, initial_th = multiline_bbox(dummy_draw, final_caption_text, font=initial_font, spacing=12)
+        initial_font = _get_font(resource_path(config['font_path']), initial_font_size)
+        _, initial_th = _text_bbox(final_caption_text, font=initial_font, spacing=12)
         y = get_automatic_placement_coords(base_image, original_width, original_height, initial_th, face_detector)
 
     if x is None:
@@ -371,11 +379,10 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
         settings['wrapped_caption'] = wrapped_caption
 
         # Get the caption position once before processing the frames
-        dummy_draw = ImageDraw.Draw(Image.new('RGBA', (0,0)))
         initial_font_size = int(font_size * (width / 1080))
-        initial_font = ImageFont.truetype(resource_path(font_path), initial_font_size)
+        initial_font = _get_font(resource_path(font_path), initial_font_size)
         final_caption_text = replace_quotes(wrapped_caption if wrapped_caption else caption_text)
-        _, initial_th = multiline_bbox(dummy_draw, final_caption_text, font=initial_font, spacing=12)
+        _, initial_th = _text_bbox(final_caption_text, font=initial_font, spacing=12)
         settings['y'] = get_automatic_placement_coords(original_clip.get_frame(0), width, height, initial_th, face_detector)
 
 
