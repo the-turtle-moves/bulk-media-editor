@@ -10,6 +10,7 @@ from image_processor import process_images, resource_path, multiline_bbox, get_a
 import random
 import threading
 import queue
+import re
 
 class App(tk.Tk):
     def __init__(self):
@@ -482,7 +483,7 @@ class App(tk.Tk):
             num_groups = 1
 
         captions_text = self.caption_text_box.get("1.0", tk.END).strip()
-        captions = [c for c in captions_text.split('\n') if c.strip()]
+        captions = [c.strip() for c in re.split(r'\n\s*\n', captions_text) if c.strip()]
         
         if not captions:
             return ""
@@ -697,8 +698,8 @@ class App(tk.Tk):
             messagebox.showerror("Invalid Input", "Group size must be a valid number.")
             return
 
-        captions = self.caption_text_box.get("1.0", tk.END).strip().split('\n')
-        captions = [c for c in captions if c.strip()]
+        captions_text = self.caption_text_box.get("1.0", tk.END).strip()
+        captions = [c.strip() for c in re.split(r'\n\s*\n', captions_text) if c.strip()]
         separate_folders = self.separate_folders_var.get()
 
         self.start_button.config(state=tk.DISABLED)
