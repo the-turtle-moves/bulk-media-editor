@@ -793,7 +793,8 @@ class App(tk.Tk):
                     progress_callback=lambda current, total: self.progress_queue.put(((files_processed_count + current) / total_files_count) * 100),
                     random_tilt=self.random_tilt_var.get(),
                     font_outline=self.font_outline_var.get(),
-                    filename_option=self.filename_option.get()
+                    filename_option=self.filename_option.get(),
+                    start_index=files_processed_count
                 )
                 files_processed_count += len(group)
 

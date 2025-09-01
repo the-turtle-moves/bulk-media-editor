@@ -276,7 +276,7 @@ def safe_print(text):
     if sys.stdout:
         print(text)
 
-def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random"):
+def process_images(image_paths, output_folder, font_path, font_size, text_width_ratio, text_color, stroke_color, stroke_width, resolution=None, image_settings=None, progress_callback=None, random_tilt=False, font_outline=True, filename_option="random", start_index=0):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
@@ -307,7 +307,7 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
         file_extension = os.path.splitext(original_filename)[1]
 
         if filename_option == "sequential":
-            new_filename_base = f"image_{i+1:06d}"
+            new_filename_base = f"image_{start_index + i + 1:06d}"
             filename = f"{new_filename_base}{file_extension}"
         elif filename_option == "random":
             while True:
