@@ -186,12 +186,40 @@ def get_automatic_placement_coords(image_input, original_width, original_height,
 
     return current_y
 
-def generate_captioned_image(base_image, settings, config, face_detector, random_tilt=False, font_outline=True):
+def generate_captioned_image(base_image, settings, config, face_detector, random_tilt=False, font_outline=True, overlay_image_path=None):
     if base_image is None:
         return None, None
+
     original_width, original_height = base_image.size
     caption_text = settings.get('caption', '')
     wrapped_caption = settings.get('wrapped_caption', '')
+
+    if overlay_image_path:
+        try:
+            overlay_image = Image.open(overlay_image_path).convert("RGBA")
+        except Exception as e:
+            print(f"Error opening overlay image: {e}")
+            return base_image, None
+
+        scale_x = settings.get('scale_x', 1.0)
+        scale_y = settings.get('scale_y', 1.0)
+
+        overlay_width, overlay_height = overlay_image.size
+        new_width = int(overlay_width * scale_x)
+        new_height = int(overlay_height * scale_y)
+        
+        resized_overlay = overlay_image.resize((new_width, new_height), Image.LANCZOS)
+
+        x = settings.get('x')
+        y = settings.get('y')
+
+        if x is None:
+            x = (original_width - new_width) / 2
+        if y is None:
+            y = (original_height - new_height) / 2
+
+        base_image.paste(resized_overlay, (int(x), int(y)), resized_overlay)
+        return base_image, (x, y, new_width, new_height)
 
     if not caption_text:
         return base_image, None
@@ -325,8 +353,10 @@ def process_images(image_paths, output_folder, font_path, font_size, text_width_
             base_image = resize_and_crop(base_image, resolution[0], resolution[1])
 
         settings = image_settings.get(image_path, {})
-        
-        final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt, font_outline)
+        if 'overlay_image_path' in image_settings[image_path]:
+            final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt, font_outline, image_settings[image_path]['overlay_image_path'])
+        else:
+            final_image, _ = generate_captioned_image(base_image, settings, config, face_detector, random_tilt, font_outline)
 
         # --- SAVE IMAGE ---
         output_path = os.path.join(output_folder, filename)
@@ -414,7 +444,7 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
             pil_image = Image.fromarray(frame).convert("RGBA")
             if resolution:
                 pil_image = resize_and_crop(pil_image, resolution[0], resolution[1])
-            final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline)
+            final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline, image_settings.get('overlay_image_path'))
             final_frame = cv2.cvtColor(np.array(final_image.convert("RGB")), cv2.COLOR_RGB2BGR)
             out.write(final_frame)
             if progress_callback:

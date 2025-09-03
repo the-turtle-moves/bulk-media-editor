@@ -167,6 +167,26 @@ class App(tk.Tk):
         self.caption_text_box.pack(pady=5, padx=5, fill=tk.X)
         self.caption_text_box.bind('<<Modified>>', self.on_caption_change)
 
+        self.overlay_image_path = None
+        self.overlay_image_label_var = tk.StringVar(value="No overlay image selected")
+        
+        self.select_overlay_button = tk.Button(self.caption_frame, text="Select Overlay Image", command=self.select_overlay_image)
+        self.select_overlay_button.pack(pady=5, padx=5, fill=tk.X)
+        
+        self.overlay_image_label = tk.Label(self.caption_frame, textvariable=self.overlay_image_label_var)
+        self.overlay_image_label.pack(pady=5, padx=5, fill=tk.X)
+        
+    def select_overlay_image(self):
+        file_path = filedialog.askopenfilename(
+            title="Select Overlay Image",
+            filetypes=(("Image Files", "*.png;*.jpg;*.jpeg"), ("All files", "*.*"))
+        )
+        if file_path:
+            self.overlay_image_path = file_path
+            self.overlay_image_label_var.set(os.path.basename(file_path))
+            self.caption_text_box.delete("1.0", tk.END)
+            self.display_image()
+
         # Output Folder
         self.output_folder_frame = tk.LabelFrame(self.control_frame, text="Output Folder")
         self.output_folder_frame.pack(pady=2, fill=tk.X)
@@ -558,6 +578,8 @@ class App(tk.Tk):
         if self.caption_update_timer:
             self.after_cancel(self.caption_update_timer)
         self.caption_update_timer = self.after(300, self._perform_caption_update)
+        self.overlay_image_path = None
+        self.overlay_image_label_var.set("No overlay image selected")
 
     def _perform_caption_update(self):
         """ Updates the preview based on the content of the caption box. """
@@ -610,7 +632,8 @@ class App(tk.Tk):
                 self.config, 
                 self.face_detector, 
                 self.random_tilt_var.get(),
-                self.font_outline_var.get()
+                self.font_outline_var.get(),
+                overlay_image_path=self.overlay_image_path
             )
 
             panel_width = self.preview_frame.winfo_width()
@@ -820,6 +843,8 @@ class App(tk.Tk):
                              self.image_settings[path] = {'x': None, 'y': None, 'scale_x': 1.0, 'scale_y': 1.0, 'manual_placement': False}
                         self.image_settings[path]['caption'] = group_caption
                         self.image_settings[path]['wrapped_caption'] = wrapped
+                        if self.overlay_image_path:
+                            self.image_settings[path]['overlay_image_path'] = self.overlay_image_path
 
                     except Exception as e:
                         safe_print(f"Could not process/wrap text for {path}: {e}")
