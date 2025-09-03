@@ -1,0 +1,7 @@
+when I run python gui.py and upload video with sound and process, it succeeds. when I run build.bat and use exe and do the same, I get:
+
+An error occurred while processing sample-5s.mp4:
+'NoneType' object has no attribute 'write'
+
+
+this is after processing te video and when saving to storage
