@@ -149,6 +149,16 @@ class App(tk.Tk):
         self.save_settings_button = tk.Button(self.outline_frame, text="Save", command=self.save_config)
         self.save_settings_button.pack(side=tk.RIGHT, padx=5, pady=5)
 
+        # Font Settings
+        self.font_frame = tk.LabelFrame(self.control_frame, text="Font")
+        self.font_frame.pack(pady=2, fill=tk.X)
+        current_font = os.path.basename(self.config.get('font_path', '')) or 'Default'
+        self.font_path_var = tk.StringVar(value=current_font)
+        self.font_label = tk.Label(self.font_frame, textvariable=self.font_path_var, anchor=tk.W)
+        self.font_label.pack(side=tk.LEFT, padx=5, pady=5, fill=tk.X, expand=True)
+        self.font_button = tk.Button(self.font_frame, text="Choose...", command=self.choose_font)
+        self.font_button.pack(side=tk.RIGHT, padx=5, pady=5)
+
 
         # Caption Input
         self.caption_frame = tk.LabelFrame(self.control_frame, text="Caption Text")
@@ -311,6 +321,40 @@ class App(tk.Tk):
     def on_mouse_release(self, event):
         self.drag_info['is_dragging'] = False
         self.resize_info['is_resizing'] = False
+
+    def choose_font(self):
+        """Open a file dialog to choose a font file (.otf/.ttf). If canceled, keep current font."""
+        file_path = filedialog.askopenfilename(
+            title="Select Font File",
+            filetypes=(("Font Files", "*.otf;*.ttf"), ("OTF", "*.otf"), ("TTF", "*.ttf"), ("All files", "*.*"))
+        )
+        if not file_path:
+            return  # Default to current font if none selected
+
+        try:
+            # Update config and label
+            self.config['font_path'] = file_path
+            self.font_path_var.set(os.path.basename(file_path))
+
+            # Re-wrap and refresh current preview to reflect new font metrics
+            if self.preview_image_path and self.preview_image_path in self.image_settings:
+                settings = self.image_settings[self.preview_image_path]
+                caption_text = settings.get('caption', '')
+                if isinstance(self.original_image_for_preview, Image.Image):
+                    img_w, _ = self.original_image_for_preview.size
+                else:
+                    img_w, _ = self.original_image_for_preview.shape[1], self.original_image_for_preview.shape[0]
+                wrapped = wrap_text(
+                    caption_text,
+                    resource_path(self.config['font_path']),
+                    self.config['font_size'],
+                    self.config['text_width_ratio'],
+                    img_w
+                )
+                settings['wrapped_caption'] = wrapped
+                self.display_image()
+        except Exception as e:
+            messagebox.showerror("Font Error", f"Failed to set font: {e}")
 
     def _update_listbox(self):
         current_selection_indices = self.listbox.curselection()
