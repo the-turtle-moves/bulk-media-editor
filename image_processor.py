@@ -444,7 +444,10 @@ def process_video(video_path, output_folder, font_path, font_size, text_width_ra
             pil_image = Image.fromarray(frame).convert("RGBA")
             if resolution:
                 pil_image = resize_and_crop(pil_image, resolution[0], resolution[1])
-            final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline, image_settings.get('overlay_image_path'))
+            if video_path in image_settings and 'overlay_image_path' in image_settings[video_path]:
+                final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline, image_settings[video_path]['overlay_image_path'])
+            else:
+                final_image, _ = generate_captioned_image(pil_image, settings, config, face_detector, random_tilt, font_outline)
             final_frame = cv2.cvtColor(np.array(final_image.convert("RGB")), cv2.COLOR_RGB2BGR)
             out.write(final_frame)
             if progress_callback:

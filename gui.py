@@ -15,6 +15,7 @@ import re
 class App(tk.Tk):
     def __init__(self):
         super().__init__()
+        self.video_frame_cache = {}
         self.title("Image Captioner")
         self.geometry("1000x700")
 
@@ -500,7 +501,11 @@ class App(tk.Tk):
             if file_extension in ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']:
                 self.original_image_for_preview = Image.open(self.preview_image_path).convert("RGBA")
             elif file_extension in ['.mp4', '.mov', '.avi']:
-                self.original_image_for_preview = get_video_frame(self.preview_image_path)
+                if path in self.video_frame_cache:
+                    self.original_image_for_preview = self.video_frame_cache[path]
+                else:
+                    self.original_image_for_preview = get_video_frame(self.preview_image_path)
+                    self.video_frame_cache[path] = self.original_image_for_preview
             else:
                 self.original_image_for_preview = None
                 self.current_preview_image = None
@@ -915,6 +920,10 @@ class App(tk.Tk):
         for i, path in enumerate(video_paths):
             try:
                 from image_processor import process_video
+                if path not in self.image_settings:
+                    self.image_settings[path] = {}
+                if self.overlay_image_path:
+                    self.image_settings[path]['overlay_image_path'] = self.overlay_image_path
                 process_video(
                     video_path=path,
                     output_folder=output_folder,
