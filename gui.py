@@ -6,7 +6,7 @@ import sys
 import shutil
 from PIL import Image, ImageTk, ImageDraw
 import mediapipe as mp
-from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text, get_video_frame
+from image_processor import process_images, resource_path, multiline_bbox, get_automatic_placement_coords, safe_print, replace_quotes, generate_captioned_image, wrap_text, get_video_frame, resize_and_crop
 import random
 import threading
 import queue
@@ -176,17 +176,6 @@ class App(tk.Tk):
         
         self.overlay_image_label = tk.Label(self.caption_frame, textvariable=self.overlay_image_label_var)
         self.overlay_image_label.pack(pady=5, padx=5, fill=tk.X)
-        
-    def select_overlay_image(self):
-        file_path = filedialog.askopenfilename(
-            title="Select Overlay Image",
-            filetypes=(("Image Files", "*.png;*.jpg;*.jpeg"), ("All files", "*.*"))
-        )
-        if file_path:
-            self.overlay_image_path = file_path
-            self.overlay_image_label_var.set(os.path.basename(file_path))
-            self.caption_text_box.delete("1.0", tk.END)
-            self.display_image()
 
         # Output Folder
         self.output_folder_frame = tk.LabelFrame(self.control_frame, text="Output Folder")
@@ -235,6 +224,21 @@ class App(tk.Tk):
         self.process_video_button.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(5, 0))
 
         self.progress_bar = ttk.Progressbar(self.control_frame, orient='horizontal', mode='determinate')
+
+        # Bulk Preview button (renders thumbnails for selected images)
+        self.bulk_preview_button = tk.Button(self.control_frame, text="Bulk Preview", command=self.start_bulk_preview)
+        self.bulk_preview_button.pack(pady=(4, 0), fill=tk.X)
+
+    def select_overlay_image(self):
+        file_path = filedialog.askopenfilename(
+            title="Select Overlay Image",
+            filetypes=(("Image Files", "*.png;*.jpg;*.jpeg"), ("All files", "*.*"))
+        )
+        if file_path:
+            self.overlay_image_path = file_path
+            self.overlay_image_label_var.set(os.path.basename(file_path))
+            self.caption_text_box.delete("1.0", tk.END)
+            self.display_image()
 
     def show_error_popup(self, traceback_str):
         popup = tk.Toplevel(self)
@@ -690,6 +694,122 @@ class App(tk.Tk):
         except Exception as e:
             self.preview_label.config(image=None, text=f'''Cannot preview {os.path.basename(image_path)}''')
             safe_print(f"Error displaying image: {e}")
+
+    def start_bulk_preview(self):
+        # Determine which items to preview: selected images, or all images if none selected
+        selected_indices = self.listbox.curselection()
+        all_paths = [self.image_list[i] for i in selected_indices] if selected_indices else self.image_list[:]
+        image_exts = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.tif', '.webp']
+        video_exts = ['.mp4', '.mov', '.avi']
+        preview_paths = [p for p in all_paths if os.path.splitext(p)[1].lower() in image_exts + video_exts]
+
+        if not preview_paths:
+            messagebox.showwarning("No Media", "No images or videos selected or available for preview.")
+            return
+
+        # Create a simple scrollable popup
+        top = tk.Toplevel(self)
+        top.title("Bulk Preview")
+        top.geometry("760x600")
+
+        canvas = tk.Canvas(top)
+        scrollbar = tk.Scrollbar(top, orient=tk.VERTICAL, command=canvas.yview)
+        container = tk.Frame(canvas)
+        container.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=container, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Keep references to PhotoImage objects
+        self._bulk_preview_photos = []
+
+        status_var = tk.StringVar(value=f"Rendering 0/{len(preview_paths)} previews...")
+        status_label = tk.Label(top, textvariable=status_var, anchor='w')
+        status_label.pack(fill=tk.X, padx=8, pady=4)
+
+        def render_one(i=0):
+            if i >= len(preview_paths):
+                status_var.set(f"Rendered {len(preview_paths)} preview(s).")
+                return
+            path = preview_paths[i]
+            try:
+                ext = os.path.splitext(path)[1].lower()
+                if ext in image_exts:
+                    with Image.open(path) as base_img:
+                        base = base_img.convert("RGBA")
+                else:
+                    base = get_video_frame(path)
+                    if base is None:
+                        raise RuntimeError("Could not extract video preview frame")
+
+                # Apply resize option if enabled to reflect final output
+                if self.resize_enabled.get():
+                    try:
+                        w = int(self.width_var.get())
+                        h = int(self.height_var.get())
+                        if w > 0 and h > 0:
+                            base = resize_and_crop(base, w, h)
+                    except Exception:
+                        pass
+
+                # Build settings per image
+                settings = self.image_settings.get(path, {}).copy()
+
+                if self.sync_caption_var.get():
+                    settings['caption'] = self.caption_text_box.get("1.0", tk.END).strip()
+
+                # Ensure wrapped caption is present based on current config and image width
+                wrapped = wrap_text(
+                    settings.get('caption', ''),
+                    resource_path(self.config['font_path']),
+                    self.config['font_size'],
+                    self.config['text_width_ratio'],
+                    base.size[0]
+                )
+                settings['wrapped_caption'] = wrapped
+
+                final_img, _ = generate_captioned_image(
+                    base,
+                    settings,
+                    self.config,
+                    self.face_detector,
+                    self.random_tilt_var.get(),
+                    self.font_outline_var.get(),
+                    overlay_image_path=self.overlay_image_path
+                )
+
+                # Create a thumbnail for display (max width 340 keeping aspect)
+                max_w = 340
+                ratio = min(1.0, max_w / float(final_img.size[0]))
+                thumb_size = (int(final_img.size[0] * ratio), int(final_img.size[1] * ratio))
+                thumb = final_img.resize(thumb_size, Image.LANCZOS)
+
+                photo = ImageTk.PhotoImage(thumb)
+                self._bulk_preview_photos.append(photo)
+
+                item_frame = tk.Frame(container, bd=1, relief=tk.SOLID)
+                item_frame.pack(padx=8, pady=8, fill=tk.X)
+
+                name_label = tk.Label(item_frame, text=os.path.basename(path), anchor='w')
+                name_label.pack(fill=tk.X, padx=6, pady=(6, 0))
+
+                img_label = tk.Label(item_frame, image=photo)
+                img_label.pack(padx=6, pady=6)
+
+            except Exception as e:
+                err_frame = tk.Frame(container, bd=1, relief=tk.SOLID)
+                err_frame.pack(padx=8, pady=8, fill=tk.X)
+                tk.Label(err_frame, text=f"Failed to preview {os.path.basename(path)}: {e}", fg='red').pack(padx=6, pady=6)
+            finally:
+                status_var.set(f"Rendering {i+1}/{len(preview_paths)} previews...")
+                top.after(10, render_one, i + 1)
+
+        # Kick off progressive rendering so the window shows up immediately
+        top.after(10, render_one)
 
     
 

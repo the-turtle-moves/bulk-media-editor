@@ -1,7 +1,1 @@
-when I run python gui.py and upload video with sound and process, it succeeds. when I run build.bat and use exe and do the same, I get:
-
-An error occurred while processing sample-5s.mp4:
-'NoneType' object has no attribute 'write'
-
-
-this is after processing te video and when saving to storage
+- Option to show all images in full screen for a quick check before exporting to make sure there are no fails, for example a 3 rows of images shown with 10 images in each row, with ability to scroll down and check all the images quickly, the numbers of images should be visible.
