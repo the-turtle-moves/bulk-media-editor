@@ -710,7 +710,8 @@ class App(tk.Tk):
         # Create a simple scrollable popup
         top = tk.Toplevel(self)
         top.title("Bulk Preview")
-        top.geometry("760x600")
+        # Widen the window a bit to accommodate larger thumbnails in 10 columns
+        top.geometry("900x600")
 
         canvas = tk.Canvas(top)
         scrollbar = tk.Scrollbar(top, orient=tk.VERTICAL, command=canvas.yview)
@@ -759,8 +760,13 @@ class App(tk.Tk):
                 # Build settings per image
                 settings = self.image_settings.get(path, {}).copy()
 
-                if self.sync_caption_var.get():
-                    settings['caption'] = self.caption_text_box.get("1.0", tk.END).strip()
+                # Use the same per-image caption logic as the main preview/final output
+                # Supports multiple captions separated by blank lines and grouping
+                try:
+                    idx_in_all = self.image_list.index(path)
+                except ValueError:
+                    idx_in_all = 0
+                settings['caption'] = self._get_caption_for_image_index(idx_in_all)
 
                 # Ensure wrapped caption is present based on current config and image width
                 wrapped = wrap_text(
@@ -782,8 +788,9 @@ class App(tk.Tk):
                     overlay_image_path=self.overlay_image_path
                 )
 
-                # Create a thumbnail for display (max width 340 keeping aspect)
-                max_w = 340
+                # Create a slightly larger thumbnail for 10-per-row grid
+                # 80px width with window widened to 900 keeps 10 columns fitting
+                max_w = 80
                 ratio = min(1.0, max_w / float(final_img.size[0]))
                 thumb_size = (int(final_img.size[0] * ratio), int(final_img.size[1] * ratio))
                 thumb = final_img.resize(thumb_size, Image.LANCZOS)
@@ -791,19 +798,32 @@ class App(tk.Tk):
                 photo = ImageTk.PhotoImage(thumb)
                 self._bulk_preview_photos.append(photo)
 
+                # Grid layout: 10 items per row
+                columns = 10
+                row = i // columns
+                col = i % columns
+
                 item_frame = tk.Frame(container, bd=1, relief=tk.SOLID)
-                item_frame.pack(padx=8, pady=8, fill=tk.X)
+                item_frame.grid(row=row, column=col, padx=4, pady=4, sticky="n")
 
-                name_label = tk.Label(item_frame, text=os.path.basename(path), anchor='w')
-                name_label.pack(fill=tk.X, padx=6, pady=(6, 0))
+                # Add a small number label above the image
+                num_label = tk.Label(item_frame, text=str(i+1))
+                num_label.pack(padx=3, pady=(3, 0))
 
+                # Show the image to keep cells compact
                 img_label = tk.Label(item_frame, image=photo)
-                img_label.pack(padx=6, pady=6)
+                img_label.pack(padx=3, pady=3)
 
             except Exception as e:
+                # Place error cell in the same grid position
+                columns = 10
+                row = i // columns
+                col = i % columns
                 err_frame = tk.Frame(container, bd=1, relief=tk.SOLID)
-                err_frame.pack(padx=8, pady=8, fill=tk.X)
-                tk.Label(err_frame, text=f"Failed to preview {os.path.basename(path)}: {e}", fg='red').pack(padx=6, pady=6)
+                err_frame.grid(row=row, column=col, padx=4, pady=4, sticky="n")
+                tk.Label(err_frame, text=str(i+1)).pack(padx=3, pady=(3, 0))
+                tk.Label(err_frame, text=f"Error", fg='red').pack(padx=3, pady=(0, 0))
+                tk.Label(err_frame, text=os.path.basename(path), wraplength=96, justify='center').pack(padx=3, pady=3)
             finally:
                 status_var.set(f"Rendering {i+1}/{len(preview_paths)} previews...")
                 top.after(10, render_one, i + 1)
