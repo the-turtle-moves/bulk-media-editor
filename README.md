@@ -1,4 +1,4 @@
-# Image Maker
+# Bulk Media Editor
 
 A desktop application for adding captions to images and videos.
 
