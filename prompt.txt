@@ -1,1 +1,0 @@
-- Option to show all images in full screen for a quick check before exporting to make sure there are no fails, for example a 3 rows of images shown with 10 images in each row, with ability to scroll down and check all the images quickly, the numbers of images should be visible.
